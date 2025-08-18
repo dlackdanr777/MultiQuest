@@ -60,11 +60,11 @@ namespace MultiQuest_Management
             foreach (var d in Devices) HookDevice(d);
 
             // 타이머들
-            _connectionCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _connectionCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
             _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
             _connectionCheckTimer.Start();
 
-            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(120) };
+            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(180) };
             _keyEventTimer.Tick += KeyEventTimer_Tick;
             _keyEventTimer.Start();
 
@@ -81,7 +81,7 @@ namespace MultiQuest_Management
 
         private void InitializeConnectedDevices()
         {
-            string adbOutput = RunCmd("adb devices", 2000);
+            string adbOutput = RunCmd("adb devices", 3000);
             var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             foreach (var line in lines)
@@ -125,7 +125,7 @@ namespace MultiQuest_Management
 
         private async void ConnectionCheckTimer_Tick(object? sender, EventArgs e)
         {
-            string adbOutput = await Task.Run(() => RunCmd("adb devices", 2000));
+            string adbOutput = await Task.Run(() => RunCmd("adb devices", 3000));
             var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             foreach (var device in Devices)
@@ -219,7 +219,6 @@ namespace MultiQuest_Management
             if (device == null || device.Status != "Connected") return null;
 
             string videoCodec = "h264";
-            string videoEncoder = "c2.qti.avc.encoder";
             bool noAudio = true;
             int bitrateMbps = 1;
             int maxFps = 12;
@@ -229,21 +228,20 @@ namespace MultiQuest_Management
 
             var argList = new[]
             {
-        $"-s {device.Ip}",
-        $"--video-codec={videoCodec}",
-        $"--video-encoder={videoEncoder}",
-        noAudio ? "--no-audio" : "",
-        $"-b {bitrateMbps}M",
-        $"--max-fps {maxFps}",
-        $"--display-id={displayId}",
-        $"--window-title \"{windowTitle}\"",
-        $"--window-width={windowWidth}",
-        $"--window-height={windowHeight}"
-    }.Where(s => !string.IsNullOrWhiteSpace(s));
+                $"-s {device.Ip}",
+                $"--video-codec={videoCodec}",
+                noAudio ? "--no-audio" : "",
+                $"-b {bitrateMbps}M",
+                $"--max-fps {maxFps}",
+                $"--display-id={displayId}",
+                $"--window-title \"{windowTitle}\"",
+                $"--window-width={windowWidth}",
+                $"--window-height={windowHeight}"
+            }.Where(s => !string.IsNullOrWhiteSpace(s));
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int delayMs = 1000;
+            int delayMs = 2000;
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -254,7 +252,7 @@ namespace MultiQuest_Management
                 {
                     var psi = new ProcessStartInfo
                     {
-                        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe"), // scrcpy.exe의 전체 경로
+                        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe"),
                         Arguments = arguments,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
@@ -264,7 +262,6 @@ namespace MultiQuest_Management
                     newProc = Process.Start(psi);
                     newProc.EnableRaisingEvents = true;
 
-                    // 프로그램 종료 시 프로세스도 종료
                     cancellationToken.Register(() =>
                     {
                         try
@@ -308,7 +305,6 @@ namespace MultiQuest_Management
                 }
             }
 
-            // 프로그램 종료 전에 창이 열리기 직전이라면 프로세스 종료
             if (cancellationToken.IsCancellationRequested && newProc != null && !newProc.HasExited)
             {
                 try { newProc.Kill(); } catch { }
@@ -337,6 +333,7 @@ namespace MultiQuest_Management
             StartApp(device, index);
         }
 
+        // 순차 처리로 변경
         private void AllDeviceStartAppBtn_Click(object sender, RoutedEventArgs e)
         {
             this.IsEnabled = false;
@@ -345,14 +342,14 @@ namespace MultiQuest_Management
             string activity = "com.unity3d.player.UnityPlayerActivity";
             if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
 
-            var failed = new ConcurrentBag<string>();
-            Parallel.ForEach(Devices, device =>
+            var failed = new List<string>();
+            foreach (var device in Devices)
             {
-                if (device.Status != "Connected") return;
+                if (device.Status != "Connected") continue;
                 string result = RunCmdWithRetry($"adb -s {device.Ip} shell am start -n {pkg}/{activity}", 2000);
                 if (result.Contains("실패") || result.Contains("Timeout") || result.Contains("error", StringComparison.OrdinalIgnoreCase))
                     failed.Add(device.Name);
-            });
+            }
             Dispatcher.Invoke(() =>
             {
                 if (failed.Count > 0) ShowMsg($"일부 기기 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
@@ -370,16 +367,17 @@ namespace MultiQuest_Management
             onCompleted?.Invoke();
         }
 
+        // 순차 처리로 변경
         private void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
         {
             this.IsEnabled = false;
             if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
-            Parallel.ForEach(Devices, device =>
+            foreach (var device in Devices)
             {
-                if (device.Status != "Connected") return;
+                if (device.Status != "Connected") continue;
                 foreach (var pkg in _pkgNames)
                     RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 1000);
-            });
+            }
             Dispatcher.Invoke(() => { ShowMsg("전체 기기 앱 종료"); this.IsEnabled = true; });
         }
 
@@ -467,7 +465,7 @@ namespace MultiQuest_Management
                     // 탐색 결과를 사용자에게 표시
                     //Dispatcher.Invoke(() =>
                     //{
-                    //    ShowMsg($"mDNS 탐색 시도 {attempt}/{maxAttempts} 완료 - 현재까지 발견된 디바이스: {foundByMdns}개");
+                    //    ShowMsg($"mDNS 탐색 시도 {attempt}/{maxAttempts} 완료 - 현재까지 발견된 디바イス: {foundByMdns}개");
                     //});
 
                     // 다음 탐색 시도 전 대기
@@ -643,6 +641,37 @@ namespace MultiQuest_Management
             return foundCount;
         }
 
+        private void DeleteDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is Device device)
+            {
+                // ADB 연결 해제 (연결되어 있다면)
+                if (device.IsConnected && !string.IsNullOrEmpty(device.Ip))
+                {
+                    // ADB disconnect 명령 실행
+                    try
+                    {
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "adb",
+                            Arguments = $"disconnect {device.Ip}",
+                            CreateNoWindow = true,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        using (var process = System.Diagnostics.Process.Start(psi))
+                        {
+                            process.WaitForExit(2000);
+                        }
+                    }
+                    catch { /* 예외 무시 또는 로깅 */ }
+                }
+
+                Devices.Remove(device);
+            }
+        }
+
         private void OnClose(object sender, EventArgs e)
         {
             // 비디오 월 창 닫기
@@ -682,6 +711,41 @@ namespace MultiQuest_Management
             catch (Exception ex)
             {
                 Debug.WriteLine($"scrcpy 종료 중 오류 발생: {ex.Message}");
+            }
+
+            // 모든 adb.exe 프로세스 종료
+            try
+            {
+                foreach (var adbProc in Process.GetProcessesByName("adb"))
+                {
+                    adbProc.Kill();
+                    adbProc.WaitForExit();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"adb 종료 중 오류 발생: {ex.Message}");
+            }
+
+            // adb kill-server 명령 실행
+            try
+            {
+                string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(psi))
+                {
+                    process.WaitForExit(2000);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"adb kill-server 실행 중 오류 발생: {ex.Message}");
             }
         }
 
@@ -875,11 +939,13 @@ namespace MultiQuest_Management
             }
         }
 
+        private static readonly SemaphoreSlim _adbSemaphore = new(1, 1); // 동시 1개만 허용
+
         public string RunCmd(string cmd, int timeoutMs)
         {
+            _adbSemaphore.Wait();
             try
             {
-                // adb 경로를 명시적으로 추가
                 string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
                 if (cmd.StartsWith("adb"))
                 {
@@ -907,6 +973,10 @@ namespace MultiQuest_Management
             catch (Exception ex)
             {
                 return ex.Message;
+            }
+            finally
+            {
+                _adbSemaphore.Release();
             }
         }
 
@@ -1131,14 +1201,18 @@ namespace MultiQuest_Management
             }
         }
 
+        private readonly object _mirrorLock = new();
+
         private async void StartMirrorForDevice(Device device)
         {
-            // 이미 실행 중이면 위치만
-            if (_scrcpy.TryGetValue(device.Ip, out var running) && !running.HasExited)
+            lock (_mirrorLock)
             {
-                var host0 = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                if (host0 != null) ScrcpyEmbedder.Adjust(running, host0, this); // 변경
-                return;
+                if (_scrcpy.TryGetValue(device.Ip, out var running) && !running.HasExited)
+                {
+                    var host0 = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                    if (host0 != null) ScrcpyEmbedder.Adjust(running, host0, this);
+                    return;
+                }
             }
 
             var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
@@ -1155,11 +1229,20 @@ namespace MultiQuest_Management
                 CancellationToken.None);
             if (proc == null || proc.HasExited) return;
 
-            _scrcpy[device.Ip] = proc;
+            lock (_mirrorLock)
+            {
+                // 기존 프로세스가 있으면 종료
+                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
+                {
+                    try { old.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
+                }
+                _scrcpy[device.Ip] = proc;
+            }
             proc.EnableRaisingEvents = true;
-            proc.Exited += (s2, a2) => _scrcpy.Remove(device.Ip);
+            proc.Exited += (s2, a2) => { lock (_mirrorLock) { _scrcpy.Remove(device.Ip); } };
 
-            ScrcpyEmbedder.Attach(proc, host, this); // 변경
+            ScrcpyEmbedder.Attach(proc, host, this);
         }
 
         private void StopMirrorForDevice(Device device)
@@ -1191,6 +1274,8 @@ namespace MultiQuest_Management
         }
 
         // ========== 안정화된 FindInItemTemplate ==========
+
+
         public T FindInItemTemplate<T>(ItemsControl itemsControl, object item, string elementName)
             where T : FrameworkElement
         {
@@ -1353,24 +1438,18 @@ namespace MultiQuest_Management
     {
         private static readonly string[] Services = new[]
         {
-        "_adb-tls-connect._tcp.local.",
-        "_adb_secure_connect._tcp.local."
-    };
+            "_adb-tls-connect._tcp.local.",
+            "_adb_secure_connect._tcp.local."
+        };
 
-        // 기존 시그니처는 유지
         public static Task<List<(string ip, int port)>> DiscoverAsync(int mdnsTimeoutMs = 1500)
             => DiscoverAsync(CancellationToken.None, mdnsTimeoutMs);
 
-        // ★ 취소 토큰 지원 버전
         public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 1500)
         {
             var results = new List<(string, int)>();
-
-            // 각 서비스별 Resolve를 시작하고, 취소 토큰으로 대기만 중단
             var tasks = Services.Select(svc =>
                 ZeroconfResolver.ResolveAsync(svc, scanTime: TimeSpan.FromMilliseconds(mdnsTimeoutMs))).ToArray();
-
-            // 취소되면 즉시 OperationCanceledException 발생
             var all = await Task.WhenAll(tasks.Select(t => t.WithCancellation(token)));
 
             foreach (var responses in all)
@@ -1391,7 +1470,6 @@ namespace MultiQuest_Management
             return results.Distinct().ToList();
         }
     }
-
 
     // ====================== Device ======================
     public class Device : INotifyPropertyChanged
@@ -1445,7 +1523,6 @@ namespace MultiQuest_Management
 
     internal static class TaskExtensions
     {
-        // Task<T>를 CancellationToken으로 깨우기 (내부 작업이 취소를 지원하지 않아도 대기 중단)
         public static async Task<T> WithCancellation<T>(this Task<T> task, CancellationToken token)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

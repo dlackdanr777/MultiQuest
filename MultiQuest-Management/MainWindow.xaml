@@ -209,6 +209,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
 
+                                    <!-- 왼쪽: 상태/이름/아이피 -->
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <Ellipse Width="9" Height="9" Margin="0,0,8,0">
                                             <Ellipse.Style>
@@ -229,7 +230,7 @@
                                                    Foreground="#6482A7" Margin="6,0,0,0"/>
                                     </StackPanel>
 
-                                    <!-- 오른쪽: 배터리 + Refresh -->
+                                    <!-- 오른쪽: 배터리/Refresh/Open/x버튼 -->
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Grid Width="40" Height="40" Margin="0,0,10,0" VerticalAlignment="Center" IsHitTestVisible="False">
                                             <Image Source="Images/Battery.png" Width="40" Height="40" Stretch="Fill"/>
@@ -244,12 +245,24 @@
                 Click="RefreshTile_Click"
                 CommandParameter="{Binding}"/>
 
-                                        <!-- ✅ 여기에 팝업(단일 창) 버튼 추가 -->
                                         <Button Content="Open"
                 Margin="6,0,0,0"
                 Style="{StaticResource NeonMini}"
                 VerticalAlignment="Center"
                 Click="OpenDeviceBtn_Click"
+                CommandParameter="{Binding}"/>
+
+                                        <!-- x버튼을 오른쪽 끝에 추가 -->
+                                        <Button Content="✕"
+                Width="18" Height="18" Margin="8,0,0,0"
+                Padding="0"
+                FontSize="12"
+                Foreground="{StaticResource Bad}"
+                Background="Transparent"
+                BorderBrush="Transparent"
+                Cursor="Hand"
+                ToolTip="디바이스 삭제"
+                Click="DeleteDeviceBtn_Click"
                 CommandParameter="{Binding}"/>
                                     </StackPanel>
                                 </Grid>
