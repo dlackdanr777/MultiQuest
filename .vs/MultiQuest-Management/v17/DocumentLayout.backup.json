@@ -1,0 +1,212 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\settingwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\settingwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\settingwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\settingwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\settingsservices.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\settingsservices.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\multimirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\multimirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\devicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\devicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\multimirrorwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\multimirrorwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\adddevicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\adddevicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest-management-test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\multiquest-management\\progresswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\progresswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 4,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "DeviceWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\DeviceWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\DeviceWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\DeviceWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\DeviceWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-08-12T04:59:33.135Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "SettingsServices.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingsServices.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\SettingsServices.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingsServices.cs",
+              "RelativeToolTip": "MultiQuest-Management\\SettingsServices.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-11T01:35:28.892Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "SettingWindow.xaml.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingWindow.xaml.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\SettingWindow.xaml.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingWindow.xaml.cs",
+              "RelativeToolTip": "MultiQuest-Management\\SettingWindow.xaml.cs",
+              "ViewState": "AgIAABUAAAAAAAAAAAAiwCoAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-11T01:32:39.418Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "SettingWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\SettingWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\SettingWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\SettingWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-08-11T01:32:21.233Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "MainWindow.xaml.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MainWindow.xaml.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MainWindow.xaml.cs",
+              "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml.cs",
+              "ViewState": "AgIAAB4AAAAAAAAAAAAcwEIAAABVAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-03T12:53:08.89Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "MainWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MainWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MainWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-07-16T01:27:47.168Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "MultiMirrorWindow.xaml.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MultiMirrorWindow.xaml.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\MultiMirrorWindow.xaml.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MultiMirrorWindow.xaml.cs",
+              "RelativeToolTip": "MultiQuest-Management\\MultiMirrorWindow.xaml.cs",
+              "ViewState": "AgIAAEUAAAAAAAAAAAAiwH4BAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-03T06:46:35.641Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "MultiMirrorWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MultiMirrorWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\MultiMirrorWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\MultiMirrorWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\MultiMirrorWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-08-03T06:02:04.062Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "AddDeviceWindow.xaml.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "RelativeToolTip": "MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "ViewState": "AgIAAAsAAAAAAAAAAAAqwB0AAAAhAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-23T06:54:53.062Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "AddDeviceWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\AddDeviceWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\AddDeviceWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\AddDeviceWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\AddDeviceWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-07-23T06:54:45.421Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "ProgressWindow.xaml.cs",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "RelativeToolTip": "MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABoAAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-16T02:22:01.676Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "ProgressWindow.xaml",
+              "DocumentMoniker": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\ProgressWindow.xaml",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\ProgressWindow.xaml",
+              "ToolTip": "F:\\WPF\\MultiQuest-Management-Test - \uBCF5\uC0AC\uBCF8 - \uBCF5\uC0AC\uBCF8\\MultiQuest-Management\\ProgressWindow.xaml",
+              "RelativeToolTip": "MultiQuest-Management\\ProgressWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-07-16T02:21:45.434Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
