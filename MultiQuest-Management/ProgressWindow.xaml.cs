@@ -14,15 +14,19 @@ namespace MultiQuest_Management
             _mainWindow = mainWindow;
         }
 
-        public void SetProgress(int current, int total)
+        /// <summary>
+        /// 진행 상태를 업데이트합니다.
+        /// </summary>
+        /// <param name="current">현재 진행 횟수</param>
+        /// <param name="max">최대 진행 횟수</param>
+        public void SetProgress(int current, int max)
         {
-            // 반드시 Dispatcher에서 호출(스레드 충돌 방지)
+            if (max <= 0) return; // 최대값이 0 이하인 경우 방어 코드
             Dispatcher.Invoke(() =>
             {
-                LoadingBar.Maximum = total;
+                LoadingBar.Maximum = max;
                 LoadingBar.Value = current;
-                ProgressText.Text = $"{current} / {total}";
-                StatusText.Text = $"Meta Quest 기기 탐색 중... ({current}/{total})";
+                //StatusText.Text = $"기기 탐색 중... ({current}/{max})";
             });
         }
     }

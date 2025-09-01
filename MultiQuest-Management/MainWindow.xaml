@@ -152,9 +152,11 @@
             <!-- 오른쪽 상단 아이콘 메뉴 -->
             <Border Style="{StaticResource IconCard}"
                     HorizontalAlignment="Right" VerticalAlignment="Top"
-                    Margin="0,20,24,0">
-                <Grid x:Name="IconButtonGrid" Width="200" Height="200">
+                    Margin="0,5,24,0">
+                <Grid x:Name="IconButtonGrid" Width="200" Height="400">
                     <Grid.RowDefinitions>
+                        <RowDefinition/>
+                        <RowDefinition/>
                         <RowDefinition/>
                         <RowDefinition/>
                     </Grid.RowDefinitions>
@@ -175,14 +177,26 @@
                     <Button Grid.Row="1" Grid.Column="1" Margin="4" Click="AllDeviceStartAppBtn_Click" Tag="3" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
                         <Image Source="Images/EnglishTown.png" Stretch="UniformToFill"/>
                     </Button>
+                    <Button Grid.Row="2" Grid.Column="0" Margin="4" Click="AllDeviceStartAppBtn_Click" Tag="4" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                        <TextBlock Text="Gyeongju" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                    </Button>
+                    <Button Grid.Row="2" Grid.Column="1" Margin="4" Click="AllDeviceStartAppBtn_Click" Tag="5" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                        <TextBlock Text="Museum" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                    </Button>
+                    <Button Grid.Row="3" Grid.Column="0" Margin="4" Click="AllDeviceStartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                        <TextBlock Text="BrainTraining" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                    </Button>
+                    <Button Grid.Row="3" Grid.Column="1" Margin="4" Click="AllDeviceStartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                        <TextBlock Text="Storywing" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                    </Button>
                 </Grid>
             </Border>
 
             <!-- All Device Stop -->
             <Button Content="All Device Stop" Click ="AllDeviceStopAppBtn_Click"
-                    HorizontalAlignment="Right" Margin="0,270,35,0"
+                    HorizontalAlignment="Right" Margin="0,0,35,157"
                     Width="200" FontSize="20" FontWeight="Bold"
-                    Style="{StaticResource NeonButton}" Foreground="{StaticResource Bad}" Height="50" VerticalAlignment="Top"/>
+                    Style="{StaticResource NeonButton}" Foreground="{StaticResource Bad}" Height="50" VerticalAlignment="Bottom"/>
 
             <!-- ========== 3×3 슬롯: Devices 바인딩 ========== -->
             <ItemsControl x:Name="Tiles" ItemsSource="{Binding Devices}" Margin="10,20,268,24">
@@ -297,7 +311,7 @@
             <!-- 상단 설명 텍스트 -->
             <Label x:Name="All_Device_Start_Menu_Text" Content="All Device Start Menu"
                    HorizontalAlignment="Right" VerticalAlignment="Top"
-                   Margin="0,12,24,0" Foreground="{StaticResource TextDim}"
+                   Margin="0,0,24,0" Foreground="{StaticResource TextDim}"
                    Background="{x:Null}" BorderBrush="{x:Null}"/>
         </Grid>
     </DockPanel>

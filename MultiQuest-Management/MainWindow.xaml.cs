@@ -33,7 +33,7 @@ namespace MultiQuest_Management
         private DispatcherTimer _connectionCheckTimer;
         private DispatcherTimer _keyEventTimer;
         private DispatcherTimer _batteryCheckTimer;
-        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp" };
+        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.Muks.MRPrototype" };
         private CancellationTokenSource _scanCancelSource;
         private MultiMirrorWindow _multiMirrorWindow;
         private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
@@ -408,7 +408,7 @@ namespace MultiQuest_Management
                 for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {
                     if (token.IsCancellationRequested) break;
-
+                    progress.SetProgress(attempt, maxAttempts);
                     // ★ mDNS 탐색
                     try
                     {
