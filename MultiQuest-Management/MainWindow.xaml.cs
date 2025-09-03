@@ -33,7 +33,7 @@ namespace MultiQuest_Management
         private DispatcherTimer _connectionCheckTimer;
         private DispatcherTimer _keyEventTimer;
         private DispatcherTimer _batteryCheckTimer;
-        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.Muks.MRPrototype" };
+        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.StoryWing.XRStorywing" };
         private CancellationTokenSource _scanCancelSource;
         private MultiMirrorWindow _multiMirrorWindow;
         private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
@@ -402,7 +402,7 @@ namespace MultiQuest_Management
             try
             {
                 int foundByMdns = 0;
-                int maxAttempts = 3; // 최대 탐색 시도 횟수
+                int maxAttempts = 5; // 최대 탐색 시도 횟수
                 int delayBetweenAttemptsMs = 1000; // 각 탐색 사이의 대기 시간 (밀리초)
 
                 for (int attempt = 1; attempt <= maxAttempts; attempt++)
@@ -412,7 +412,7 @@ namespace MultiQuest_Management
                     // ★ mDNS 탐색
                     try
                     {
-                        var mdns = await AdbMdnsDiscovery.DiscoverAsync(token, 1500); // ← 토큰 전달
+                        var mdns = await AdbMdnsDiscovery.DiscoverAsync(token, 2000); // ← 토큰 전달
                         if (!token.IsCancellationRequested && mdns.Count > 0)
                         {
                             await Task.Run(() =>
@@ -1445,7 +1445,7 @@ namespace MultiQuest_Management
         public static Task<List<(string ip, int port)>> DiscoverAsync(int mdnsTimeoutMs = 1500)
             => DiscoverAsync(CancellationToken.None, mdnsTimeoutMs);
 
-        public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 1500)
+        public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 2000)
         {
             var results = new List<(string, int)>();
             var tasks = Services.Select(svc =>
