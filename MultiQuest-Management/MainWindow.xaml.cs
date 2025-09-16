@@ -412,7 +412,7 @@ namespace MultiQuest_Management
                     // ★ mDNS 탐색
                     try
                     {
-                        var mdns = await AdbMdnsDiscovery.DiscoverAsync(token, 2000); // ← 토큰 전달
+                        var mdns = await AdbMdnsDiscovery.DiscoverAsync(token, 5000); // ← 토큰 전달
                         if (!token.IsCancellationRequested && mdns.Count > 0)
                         {
                             await Task.Run(() =>
@@ -907,31 +907,59 @@ namespace MultiQuest_Management
             return true;
         }
 
-        private void ShowMsg(string msg) => MessageBox.Show(msg);
+        private void ShowMsg(string msg)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    // MainWindow가 닫히지 않았는지 확인
+                    if (this.IsLoaded)
+                    {
+                        MessageBox.Show(this, msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        // Owner를 설정하지 않고 MessageBox 표시
+                        MessageBox.Show(msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"MessageBox 표시 중 오류 발생: {ex.Message}");
+                }
+            });
+        }
+
 
         private void EnsureAdbRunning()
         {
             try
             {
-                // adb.exe 실행 확인
-                if (Process.GetProcessesByName("adb").Length == 0)
+                string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
+                if (!File.Exists(adbPath))
                 {
-                    // 상대 경로로 adb.exe 실행
-                    string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
-                    if (!File.Exists(adbPath))
-                    {
-                        ShowMsg($"ADB 실행 파일을 찾을 수 없습니다: {adbPath}");
-                        return;
-                    }
-
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = adbPath,
-                        Arguments = "start-server",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    });
+                    ShowMsg($"ADB 실행 파일을 찾을 수 없습니다: {adbPath}");
+                    return;
                 }
+
+                // 기존 ADB 서버 종료
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }).WaitForExit();
+
+                // ADB 서버 시작
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = adbPath,
+                    Arguments = "start-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
             }
             catch (Exception ex)
             {
@@ -1442,10 +1470,10 @@ namespace MultiQuest_Management
             "_adb_secure_connect._tcp.local."
         };
 
-        public static Task<List<(string ip, int port)>> DiscoverAsync(int mdnsTimeoutMs = 1500)
+        public static Task<List<(string ip, int port)>> DiscoverAsync(int mdnsTimeoutMs = 5000)
             => DiscoverAsync(CancellationToken.None, mdnsTimeoutMs);
 
-        public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 2000)
+        public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 5000)
         {
             var results = new List<(string, int)>();
             var tasks = Services.Select(svc =>
