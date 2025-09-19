@@ -61,8 +61,7 @@
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml",
               "RelativeToolTip": "MultiQuest-Management\\App.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2025-09-01T08:00:08.145Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-09-01T08:00:08.145Z"
             },
             {
               "$type": "Document",
@@ -73,8 +72,7 @@
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\DeviceWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2025-08-12T04:59:33.135Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-08-12T04:59:33.135Z"
             },
             {
               "$type": "Document",
@@ -86,8 +84,7 @@
               "RelativeToolTip": "MultiQuest-Management\\SettingWindow.xaml.cs",
               "ViewState": "AgIAAAsAAAAAAAAAAAAgwCoAAAAFAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-08-11T01:32:39.418Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-08-11T01:32:39.418Z"
             },
             {
               "$type": "Document",
@@ -165,7 +162,7 @@
               "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml.cs",
-              "ViewState": "AgIAAB0AAAAAAAAAAAAewD8AAABDAAAAAAAAAA==",
+              "ViewState": "AgIAAK4BAAAAAAAAAAAMwMUBAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-08-03T12:53:08.89Z",
               "EditorCaption": ""

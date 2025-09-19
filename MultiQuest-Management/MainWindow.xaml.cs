@@ -713,24 +713,12 @@ namespace MultiQuest_Management
                 // ADB 연결 해제 (연결되어 있다면)
                 if (device.IsConnected && !string.IsNullOrEmpty(device.Ip))
                 {
-                    // ADB disconnect 명령 실행
                     try
                     {
-                        var psi = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = "adb",
-                            Arguments = $"disconnect {device.Ip}",
-                            CreateNoWindow = true,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true
-                        };
-                        using (var process = System.Diagnostics.Process.Start(psi))
-                        {
-                            process.WaitForExit(2000);
-                        }
+                        // 일관된 ADB 경로/세마포어 사용
+                        RunCmdWithRetry($"adb disconnect {device.Ip}", 2000, 2, 200);
                     }
-                    catch { /* 예외 무시 또는 로깅 */ }
+                    catch { }
                 }
 
                 Devices.Remove(device);
@@ -739,6 +727,12 @@ namespace MultiQuest_Management
 
         private void OnClose(object sender, EventArgs e)
         {
+            // 이벤트 구독 해제 및 타이머 정지
+            try { SettingsService.Instance.Changed -= OnChangeSerialName; } catch { }
+            try { _connectionCheckTimer?.Stop(); } catch { }
+            try { _keyEventTimer?.Stop(); } catch { }
+            try { _batteryCheckTimer?.Stop(); } catch { }
+
             // 비디오 월 창 닫기
             if (_multiMirrorWindow != null)
             {
@@ -1029,7 +1023,9 @@ namespace MultiQuest_Management
             }
         }
 
-        private static readonly SemaphoreSlim _adbSemaphore = new(1, 1); // 동시 1개만 허용
+        // 안전한 상한으로 ADB 호출 동시성 제한 (너무 높으면 불안정)
+        private static readonly int AdbMaxConcurrency = Math.Min(4, Math.Max(1, Environment.ProcessorCount / 2));
+        private static readonly SemaphoreSlim _adbSemaphore = new(AdbMaxConcurrency, AdbMaxConcurrency); // 동시 N개 허용
 
         public string RunCmd(string cmd, int timeoutMs)
         {
@@ -1037,23 +1033,29 @@ namespace MultiQuest_Management
             try
             {
                 string adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
-                if (cmd.StartsWith("adb"))
+
+                var psi = new ProcessStartInfo
                 {
-                    cmd = cmd.Replace("adb", $"\"{adbPath}\"");
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                // adb 호출은 직접 실행해 오버헤드 및 문자열 치환 문제 제거
+                if (cmd.StartsWith("adb", StringComparison.OrdinalIgnoreCase))
+                {
+                    string args = cmd.Length > 3 ? cmd.Substring(3).TrimStart() : string.Empty;
+                    psi.FileName = adbPath;
+                    psi.Arguments = args;
+                }
+                else
+                {
+                    psi.FileName = "cmd.exe";
+                    psi.Arguments = "/c " + cmd;
                 }
 
-                using var p = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = "/c " + cmd,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
+                using var p = new Process { StartInfo = psi };
                 p.Start();
                 if (p.WaitForExit(timeoutMs))
                     return p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();

@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MultiQuest-Management")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e5c984d51ea2da1fe760b75b09f2c8c749d8817a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+25d727fc2dba2d2a17d03b8eb149514576a20806")]
 [assembly: System.Reflection.AssemblyProductAttribute("MultiQuest-Management")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MultiQuest-Management")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
