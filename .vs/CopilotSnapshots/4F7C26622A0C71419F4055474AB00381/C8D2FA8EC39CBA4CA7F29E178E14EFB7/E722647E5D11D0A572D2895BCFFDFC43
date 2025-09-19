@@ -43,9 +43,6 @@ namespace MultiQuest_Management
 
         private bool _isShuttingDown; // 창 종료 중 여부
 
-        // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
-        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
-
         public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
 
         public MainWindow()
@@ -63,13 +60,6 @@ namespace MultiQuest_Management
             // 자동 미러링을 위한 구독
             Devices.CollectionChanged += Devices_CollectionChanged;
             Tiles.ItemContainerGenerator.StatusChanged += ItemContainerGenerator_StatusChanged;
-            Tiles.LayoutUpdated += Tiles_LayoutUpdated; // 레이아웃 변경 시 재부착
-            _tilesAdjustDebounce.Tick += (_, __) =>
-            {
-                _tilesAdjustDebounce.Stop();
-                AdjustAllEmbeddedScrcpy();
-            };
-
             this.SizeChanged += Window_SizeChanged;
             this.Closed += OnClose;
             foreach (var d in Devices) HookDevice(d);
@@ -89,36 +79,6 @@ namespace MultiQuest_Management
 
             SettingsService.Instance.Changed += OnChangeSerialName;
             OnChangeSerialName(_serialNameDic);
-        }
-
-        // 레이아웃이 바뀌면 짧게 디바운스 후 모든 임베드 창을 현재 호스트에 맞춰 재정렬
-        private void Tiles_LayoutUpdated(object? sender, EventArgs e)
-        {
-            // 다수 이벤트의 폭주를 막기 위해 디바운스
-            _tilesAdjustDebounce.Stop();
-            _tilesAdjustDebounce.Start();
-        }
-
-        // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재정렬
-        private void AdjustAllEmbeddedScrcpy()
-        {
-            foreach (var kv in _scrcpy.ToList())
-            {
-                var ip = kv.Key;
-                var proc = kv.Value;
-                try
-                {
-                    if (proc == null || proc.HasExited) continue;
-                    var device = Devices.FirstOrDefault(d => d.Ip == ip && d.IsConnected);
-                    if (device == null) continue;
-                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host != null)
-                    {
-                        ScrcpyEmbedder.Adjust(proc, host, this);
-                    }
-                }
-                catch { }
-            }
         }
 
         // ====================== ADB 초기 스캔 ======================
@@ -305,8 +265,7 @@ namespace MultiQuest_Management
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int pollIntervalMs = 50;   // 짧은 폴링 간격으로 즉시 부착 시도
-            int maxWaitMs = 4000;      // 창 핸들 대기 최대 시간
+            int delayMs = 2000;
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -327,36 +286,30 @@ namespace MultiQuest_Management
                     newProc = Process.Start(psi);
                     newProc.EnableRaisingEvents = true;
 
-                    // 프로세스가 메시지 루프 초기화하도록 잠깐 대기 (가능한 경우)
-                    try { newProc.WaitForInputIdle(1000); } catch { }
-
-                    // 창 핸들을 빠르게 폴링하여 준비되는 즉시 반환
-                    bool hasWindow = false;
-                    var sw = Stopwatch.StartNew();
-                    while (sw.ElapsedMilliseconds < maxWaitMs && !cancellationToken.IsCancellationRequested)
+                    cancellationToken.Register(() =>
                     {
                         try
                         {
-                            newProc.Refresh();
-                            if (newProc.MainWindowHandle != IntPtr.Zero)
+                            if (newProc != null && !newProc.HasExited)
                             {
-                                hasWindow = true;
-                                break;
+                                newProc.Kill();
                             }
                         }
                         catch { }
-                        try { await Task.Delay(pollIntervalMs, cancellationToken); } catch { break; }
-                    }
+                    });
 
-                    if (!hasWindow || newProc.HasExited)
+                    try { await Task.Delay(delayMs, cancellationToken); } catch { }
+
+                    bool hasWindow = false;
+                    try { newProc.Refresh(); hasWindow = newProc.MainWindowHandle != IntPtr.Zero; } catch { }
+
+                    if (newProc.HasExited || !hasWindow)
                     {
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
-                        continue; // 재시도
+                        try { await Task.Delay(500, cancellationToken); } catch { }
+                        continue;
                     }
-                    else
-                    {
-                        break; // 성공
-                    }
+                    else break;
                 }
                 catch (OperationCanceledException)
                 {
@@ -372,7 +325,7 @@ namespace MultiQuest_Management
                     {
                         try { newProc.Kill(); } catch { }
                     }
-                    // 재시도
+                    await Task.Delay(delayMs, cancellationToken);
                 }
             }
 

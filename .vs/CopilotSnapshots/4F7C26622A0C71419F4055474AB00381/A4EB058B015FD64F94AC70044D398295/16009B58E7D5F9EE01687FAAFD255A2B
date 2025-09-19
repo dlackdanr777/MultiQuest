@@ -43,9 +43,6 @@ namespace MultiQuest_Management
 
         private bool _isShuttingDown; // 창 종료 중 여부
 
-        // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
-        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
-
         public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
 
         public MainWindow()
@@ -63,13 +60,6 @@ namespace MultiQuest_Management
             // 자동 미러링을 위한 구독
             Devices.CollectionChanged += Devices_CollectionChanged;
             Tiles.ItemContainerGenerator.StatusChanged += ItemContainerGenerator_StatusChanged;
-            Tiles.LayoutUpdated += Tiles_LayoutUpdated; // 레이아웃 변경 시 재부착
-            _tilesAdjustDebounce.Tick += (_, __) =>
-            {
-                _tilesAdjustDebounce.Stop();
-                AdjustAllEmbeddedScrcpy();
-            };
-
             this.SizeChanged += Window_SizeChanged;
             this.Closed += OnClose;
             foreach (var d in Devices) HookDevice(d);
@@ -89,36 +79,6 @@ namespace MultiQuest_Management
 
             SettingsService.Instance.Changed += OnChangeSerialName;
             OnChangeSerialName(_serialNameDic);
-        }
-
-        // 레이아웃이 바뀌면 짧게 디바운스 후 모든 임베드 창을 현재 호스트에 맞춰 재정렬
-        private void Tiles_LayoutUpdated(object? sender, EventArgs e)
-        {
-            // 다수 이벤트의 폭주를 막기 위해 디바운스
-            _tilesAdjustDebounce.Stop();
-            _tilesAdjustDebounce.Start();
-        }
-
-        // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재정렬
-        private void AdjustAllEmbeddedScrcpy()
-        {
-            foreach (var kv in _scrcpy.ToList())
-            {
-                var ip = kv.Key;
-                var proc = kv.Value;
-                try
-                {
-                    if (proc == null || proc.HasExited) continue;
-                    var device = Devices.FirstOrDefault(d => d.Ip == ip && d.IsConnected);
-                    if (device == null) continue;
-                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host != null)
-                    {
-                        ScrcpyEmbedder.Adjust(proc, host, this);
-                    }
-                }
-                catch { }
-            }
         }
 
         // ====================== ADB 초기 스캔 ======================

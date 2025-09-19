@@ -41,11 +41,6 @@ namespace MultiQuest_Management
         // scrcpy 프로세스 관리자 (타일 임베드용)
         private readonly Dictionary<string, Process> _scrcpy = new();
 
-        private bool _isShuttingDown; // 창 종료 중 여부
-
-        // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
-        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
-
         public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
 
         public MainWindow()
@@ -54,22 +49,12 @@ namespace MultiQuest_Management
             InitializeComponent();
             DataContext = this;
 
-            // 종료 시점 감지 (메시지 박스 등 UI 호출 방지)
-            this.Closing += (_, __) => _isShuttingDown = true;
-
             // 초기 연결 기기 수집
             InitializeConnectedDevices();
 
             // 자동 미러링을 위한 구독
             Devices.CollectionChanged += Devices_CollectionChanged;
             Tiles.ItemContainerGenerator.StatusChanged += ItemContainerGenerator_StatusChanged;
-            Tiles.LayoutUpdated += Tiles_LayoutUpdated; // 레이아웃 변경 시 재부착
-            _tilesAdjustDebounce.Tick += (_, __) =>
-            {
-                _tilesAdjustDebounce.Stop();
-                AdjustAllEmbeddedScrcpy();
-            };
-
             this.SizeChanged += Window_SizeChanged;
             this.Closed += OnClose;
             foreach (var d in Devices) HookDevice(d);
@@ -91,37 +76,8 @@ namespace MultiQuest_Management
             OnChangeSerialName(_serialNameDic);
         }
 
-        // 레이아웃이 바뀌면 짧게 디바운스 후 모든 임베드 창을 현재 호스트에 맞춰 재정렬
-        private void Tiles_LayoutUpdated(object? sender, EventArgs e)
-        {
-            // 다수 이벤트의 폭주를 막기 위해 디바운스
-            _tilesAdjustDebounce.Stop();
-            _tilesAdjustDebounce.Start();
-        }
-
-        // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재정렬
-        private void AdjustAllEmbeddedScrcpy()
-        {
-            foreach (var kv in _scrcpy.ToList())
-            {
-                var ip = kv.Key;
-                var proc = kv.Value;
-                try
-                {
-                    if (proc == null || proc.HasExited) continue;
-                    var device = Devices.FirstOrDefault(d => d.Ip == ip && d.IsConnected);
-                    if (device == null) continue;
-                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host != null)
-                    {
-                        ScrcpyEmbedder.Adjust(proc, host, this);
-                    }
-                }
-                catch { }
-            }
-        }
-
         // ====================== ADB 초기 스캔 ======================
+
 
         private void InitializeConnectedDevices()
         {
@@ -169,42 +125,22 @@ namespace MultiQuest_Management
 
         private async void ConnectionCheckTimer_Tick(object? sender, EventArgs e)
         {
-            // adb 출력 한 번만 파싱해서 상태 맵 구성
             string adbOutput = await Task.Run(() => RunCmd("adb devices", 3000));
             var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-            var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var line in lines)
+            foreach (var device in Devices)
             {
-                var trimmed = line.Trim();
-                // 예상 포맷: "<addr>\t<status>" 또는 "<addr> <status>"
-                var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 2)
-                {
-                    var addr = parts[0];
-                    var state = parts[^1];
-                    if (state is "device" or "offline" or "unauthorized")
-                    {
-                        statusMap[addr] = state;
-                    }
-                }
-            }
+                bool isConnected = lines.Any(line =>
+                    line.Trim().StartsWith(device.Ip) && line.TrimEnd().EndsWith("device"));
+                bool isOffline = lines.Any(line =>
+                    line.Trim().StartsWith(device.Ip) && line.TrimEnd().EndsWith("offline"));
+                bool isUnauthorized = lines.Any(line =>
+                    line.Trim().StartsWith(device.Ip) && line.TrimEnd().EndsWith("unauthorized"));
 
-            foreach (var device in Devices.ToList())
-            {
-                if (statusMap.TryGetValue(device.Ip, out var state))
-                {
-                    device.Status = state.Equals("device", StringComparison.OrdinalIgnoreCase)
-                        ? "Connected"
-                        : state.Equals("offline", StringComparison.OrdinalIgnoreCase)
-                            ? "Offline"
-                            : state.Equals("unauthorized", StringComparison.OrdinalIgnoreCase)
-                                ? "Unauthorized" : "Failed";
-                }
-                else
-                {
-                    device.Status = "Failed";
-                }
+                if (isConnected) device.Status = "Connected";
+                else if (isOffline) device.Status = "Offline";
+                else if (isUnauthorized) device.Status = "Unauthorized";
+                else device.Status = "Failed";
             }
         }
 
@@ -305,8 +241,7 @@ namespace MultiQuest_Management
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int pollIntervalMs = 50;   // 짧은 폴링 간격으로 즉시 부착 시도
-            int maxWaitMs = 4000;      // 창 핸들 대기 최대 시간
+            int delayMs = 2000;
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -327,36 +262,30 @@ namespace MultiQuest_Management
                     newProc = Process.Start(psi);
                     newProc.EnableRaisingEvents = true;
 
-                    // 프로세스가 메시지 루프 초기화하도록 잠깐 대기 (가능한 경우)
-                    try { newProc.WaitForInputIdle(1000); } catch { }
-
-                    // 창 핸들을 빠르게 폴링하여 준비되는 즉시 반환
-                    bool hasWindow = false;
-                    var sw = Stopwatch.StartNew();
-                    while (sw.ElapsedMilliseconds < maxWaitMs && !cancellationToken.IsCancellationRequested)
+                    cancellationToken.Register(() =>
                     {
                         try
                         {
-                            newProc.Refresh();
-                            if (newProc.MainWindowHandle != IntPtr.Zero)
+                            if (newProc != null && !newProc.HasExited)
                             {
-                                hasWindow = true;
-                                break;
+                                newProc.Kill();
                             }
                         }
                         catch { }
-                        try { await Task.Delay(pollIntervalMs, cancellationToken); } catch { break; }
-                    }
+                    });
 
-                    if (!hasWindow || newProc.HasExited)
+                    try { await Task.Delay(delayMs, cancellationToken); } catch { }
+
+                    bool hasWindow = false;
+                    try { newProc.Refresh(); hasWindow = newProc.MainWindowHandle != IntPtr.Zero; } catch { }
+
+                    if (newProc.HasExited || !hasWindow)
                     {
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
-                        continue; // 재시도
+                        try { await Task.Delay(500, cancellationToken); } catch { }
+                        continue;
                     }
-                    else
-                    {
-                        break; // 성공
-                    }
+                    else break;
                 }
                 catch (OperationCanceledException)
                 {
@@ -372,7 +301,7 @@ namespace MultiQuest_Management
                     {
                         try { newProc.Kill(); } catch { }
                     }
-                    // 재시도
+                    await Task.Delay(delayMs, cancellationToken);
                 }
             }
 
@@ -532,6 +461,12 @@ namespace MultiQuest_Management
                         // 사용자가 닫았으므로 즉시 종료
                         return;
                     }
+
+                    // 탐색 결과를 사용자에게 표시
+                    //Dispatcher.Invoke(() =>
+                    //{
+                    //    ShowMsg($"mDNS 탐색 시도 {attempt}/{maxAttempts} 완료 - 현재까지 발견된 디바イス: {foundByMdns}개");
+                    //});
 
                     // 다음 탐색 시도 전 대기
                     if (attempt < maxAttempts)
@@ -814,6 +749,7 @@ namespace MultiQuest_Management
             }
         }
 
+
         private async Task<List<string>> FindAliveIpsAsync(string baseIp, string localIp, int ipStart, int ipEnd, ProgressWindow progress, CancellationToken token)
         {
             var aliveIps = new ConcurrentBag<string>();
@@ -865,7 +801,7 @@ namespace MultiQuest_Management
                             Debug.WriteLine("작업이 취소되었습니다.");
                         }
                     });
-                    if (attempt < maxRetry) await Task.Delay(retryDelayMs, token); // 재시도 전 대기
+                        if (attempt < maxRetry) await Task.Delay(retryDelayMs, token); // 재시도 전 대기
                 }
             }
             catch (OperationCanceledException) { }
@@ -973,26 +909,28 @@ namespace MultiQuest_Management
 
         private void ShowMsg(string msg)
         {
-            if (_isShuttingDown) return; // 종료 중에는 표시하지 않음
-
-            void ShowInternal()
+            Dispatcher.Invoke(() =>
             {
                 try
                 {
-                    if (this.IsLoaded && this.IsVisible)
+                    // MainWindow가 닫히지 않았는지 확인
+                    if (this.IsLoaded)
+                    {
                         MessageBox.Show(this, msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
                     else
+                    {
+                        // Owner를 설정하지 않고 MessageBox 표시
                         MessageBox.Show(msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"MessageBox 표시 중 오류: {ex.Message}");
+                    Debug.WriteLine($"MessageBox 표시 중 오류 발생: {ex.Message}");
                 }
-            }
-
-            if (Dispatcher.CheckAccess()) ShowInternal();
-            else Dispatcher.BeginInvoke((Action)ShowInternal);
+            });
         }
+
 
         private void EnsureAdbRunning()
         {
@@ -1364,6 +1302,7 @@ namespace MultiQuest_Management
         }
 
         // ========== 안정화된 FindInItemTemplate ==========
+
 
         public T FindInItemTemplate<T>(ItemsControl itemsControl, object item, string elementName)
             where T : FrameworkElement
