@@ -573,7 +573,7 @@ namespace MultiQuest_Management {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/MultiQuest-Management;component/multimirrorwindow.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/MultiQuest-Management;V1.0.0.0;component/multimirrorwindow.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\MultiMirrorWindow.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);

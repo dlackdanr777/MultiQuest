@@ -45,10 +45,6 @@ namespace MultiQuest_Management
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
-        // 동시 실행 scrcpy 제한 (예: 4)
-        private static readonly int ScrcpyMaxConcurrency = 4;
-        private static readonly SemaphoreSlim _scrcpySemaphore = new(ScrcpyMaxConcurrency, ScrcpyMaxConcurrency);
-
         // 자동 재연결 상태 관리
         private sealed class ReconnectState
         {
@@ -465,8 +461,8 @@ namespace MultiQuest_Management
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int pollIntervalMs = 100;   // 폴링 간격을 늘려 CPU 사용 감소
-            int maxWaitMs = 10000;      // 창 핸들 대기 최대 시간 (10초로 증가)
+            int pollIntervalMs = 50;   // 짧은 폴링 간격으로 즉시 부착 시도
+            int maxWaitMs = 4000;      // 창 핸들 대기 최대 시간
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -543,27 +539,6 @@ namespace MultiQuest_Management
             }
 
             return newProc;
-        }
-
-        public async Task<Process> StartMirroringWithSemaphoreAsync(Device device, int width, int height, CancellationToken cancellationToken)
-        {
-            await _scrcpySemaphore.WaitAsync(cancellationToken);
-            try
-            {
-                int maxRetry = 3;
-                for (int attempt = 1; attempt <= maxRetry; attempt++)
-                {
-                    var proc = await StartMirroringAsync(device, width, height, cancellationToken);
-                    if (proc != null && !proc.HasExited)
-                        return proc;
-                    await Task.Delay(300, cancellationToken); // 실패시 잠시 대기 후 재시도
-                }
-                return null;
-            }
-            finally
-            {
-                _scrcpySemaphore.Release();
-            }
         }
 
         public void StartApp(Device device, int index, Action onCompleted = null)
@@ -1496,7 +1471,7 @@ namespace MultiQuest_Management
                 if (host == null) return;
             }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device,
+            var proc = await StartMirroringAsync(device,
                 (int)Math.Max(1, host.ActualWidth),
                 (int)Math.Max(1, host.ActualHeight),
                 CancellationToken.None);
@@ -1612,7 +1587,7 @@ namespace MultiQuest_Management
                 return;
             }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            var proc = await StartMirroringAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
             if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); return; }
 
             _scrcpy[device.Ip] = proc;
@@ -1641,7 +1616,7 @@ namespace MultiQuest_Management
             var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
             if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); _isRefreshing = false; return; }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            var proc = await StartMirroringAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
             if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
 
             _scrcpy[device.Ip] = proc;

@@ -465,8 +465,8 @@ namespace MultiQuest_Management
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int pollIntervalMs = 100;   // 폴링 간격을 늘려 CPU 사용 감소
-            int maxWaitMs = 10000;      // 창 핸들 대기 최대 시간 (10초로 증가)
+            int pollIntervalMs = 50;   // 짧은 폴링 간격으로 즉시 부착 시도
+            int maxWaitMs = 4000;      // 창 핸들 대기 최대 시간
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
