@@ -45,15 +45,6 @@ namespace MultiQuest_Management
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
-        // 자동 재연결 상태 관리
-        private sealed class ReconnectState
-        {
-            public int Attempt;
-            public DateTime NextUtc;
-            public bool IsRunning;
-        }
-        private readonly Dictionary<string, ReconnectState> _reconnectStates = new(StringComparer.OrdinalIgnoreCase);
-
         // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
         private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
 
@@ -220,139 +211,12 @@ namespace MultiQuest_Management
                     {
                         device.Status = "Failed";
                     }
-
-                    // 자동 재연결 스케줄링 (Unauthorized는 사용자가 승인 필요하므로 스킵)
-                    if (device.Status == "Offline" || device.Status == "Failed")
-                        ScheduleReconnect(device);
                 }
             }
             finally
             {
                 _isConnCheckRunning = false;
             }
-        }
-
-        private void ScheduleReconnect(Device device)
-        {
-            if (device == null || string.IsNullOrWhiteSpace(device.Ip)) return;
-
-            ReconnectState st;
-            lock (_reconnectStates)
-            {
-                if (!_reconnectStates.TryGetValue(device.Ip, out st))
-                {
-                    st = new ReconnectState { Attempt = 0, NextUtc = DateTime.MinValue, IsRunning = false };
-                    _reconnectStates[device.Ip] = st;
-                }
-
-                // 아직 대기 시간
-                if (st.IsRunning || DateTime.UtcNow < st.NextUtc) return;
-                st.IsRunning = true;
-            }
-
-            _ = Task.Run(async () =>
-            {
-                bool ok = false;
-                try
-                {
-                    ok = await TryReconnectDeviceAsync(device);
-                }
-                catch { }
-                finally
-                {
-                    lock (_reconnectStates)
-                    {
-                        if (_reconnectStates.TryGetValue(device.Ip, out var s))
-                        {
-                            if (ok)
-                            {
-                                s.Attempt = 0;
-                                s.NextUtc = DateTime.UtcNow.AddSeconds(2);
-                            }
-                            else
-                            {
-                                s.Attempt = Math.Min(s.Attempt + 1, 10);
-                                // 지수 백오프 (최대 60초)
-                                var delaySec = Math.Min(60, (int)Math.Pow(2, s.Attempt));
-                                s.NextUtc = DateTime.UtcNow.AddSeconds(delaySec);
-                            }
-                            s.IsRunning = false;
-                        }
-                    }
-                }
-            });
-        }
-
-        private async Task<bool> TryReconnectDeviceAsync(Device device)
-        {
-            if (device == null) return false;
-
-            // 1) 기존 주소로 재연결 시도
-            string output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
-            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-            {
-                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
-                return true;
-            }
-
-            // 2) 간단한 정리 후 재시도
-            RunCmd($"adb disconnect {device.Ip}", 1000);
-            output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
-            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-            {
-                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
-                return true;
-            }
-
-            // 3) mDNS에서 동일 IP의 최신 포트 확인 후 재시도 (빠른 경로)
-            try
-            {
-                var mdns = await AdbMdnsDiscovery.DiscoverAsync(2500);
-                string ipOnly = device.Ip.Split(':')[0];
-                var cand = mdns.FirstOrDefault(t => string.Equals(t.ip, ipOnly, StringComparison.OrdinalIgnoreCase));
-                if (!string.IsNullOrEmpty(cand.ip) && cand.port > 0)
-                {
-                    string addr = $"{cand.ip}:{cand.port}";
-                    string out2 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
-                    if (out2.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                        out2.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            device.Ip = addr; // 포트 갱신
-                            device.Status = "Connected";
-                        });
-                        return true;
-                    }
-                }
-            }
-            catch { }
-
-            // 4) 기본 포트(5555) 빠른 체크
-            try
-            {
-                string ipOnly = device.Ip.Split(':')[0];
-                if (await TryConnectPort(ipOnly, 5555, CancellationToken.None))
-                {
-                    string addr = $"{ipOnly}:5555";
-                    string out3 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
-                    if (out3.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                        out3.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            device.Ip = addr;
-                            device.Status = "Connected";
-                        });
-                        return true;
-                    }
-                }
-            }
-            catch { }
-
-            return false;
         }
 
         private async void UpdateBatteryStatus(object? sender, EventArgs e)

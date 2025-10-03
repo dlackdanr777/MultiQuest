@@ -42,17 +42,6 @@ namespace MultiQuest_Management
         private readonly Dictionary<string, Process> _scrcpy = new();
 
         private bool _isShuttingDown; // 창 종료 중 여부
-        private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
-        private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
-
-        // 자동 재연결 상태 관리
-        private sealed class ReconnectState
-        {
-            public int Attempt;
-            public DateTime NextUtc;
-            public bool IsRunning;
-        }
-        private readonly Dictionary<string, ReconnectState> _reconnectStates = new(StringComparer.OrdinalIgnoreCase);
 
         // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
         private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
@@ -180,215 +169,70 @@ namespace MultiQuest_Management
 
         private async void ConnectionCheckTimer_Tick(object? sender, EventArgs e)
         {
-            if (_isConnCheckRunning) return; // 중복 실행 방지
-            _isConnCheckRunning = true;
-            try
-            {
-                // adb 출력 한 번만 파싱해서 상태 맵 구성
-                string adbOutput = await Task.Run(() => RunCmd("adb devices", 3000));
-                var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            // adb 출력 한 번만 파싱해서 상태 맵 구성
+            string adbOutput = await Task.Run(() => RunCmd("adb devices", 3000));
+            var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-                var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var line in lines)
+            var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                // 예상 포맷: "<addr>\t<status>" 또는 "<addr> <status>"
+                var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
                 {
-                    var trimmed = line.Trim();
-                    // 예상 포맷: "<addr>\t<status>" 또는 "<addr> <status>"
-                    var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
+                    var addr = parts[0];
+                    var state = parts[^1];
+                    if (state is "device" or "offline" or "unauthorized")
                     {
-                        var addr = parts[0];
-                        var state = parts[^1];
-                        if (state is "device" or "offline" or "unauthorized")
-                        {
-                            statusMap[addr] = state;
-                        }
-                    }
-                }
-
-                foreach (var device in Devices.ToList())
-                {
-                    if (statusMap.TryGetValue(device.Ip, out var state))
-                    {
-                        device.Status = state.Equals("device", StringComparison.OrdinalIgnoreCase)
-                            ? "Connected"
-                            : state.Equals("offline", StringComparison.OrdinalIgnoreCase)
-                                ? "Offline"
-                                : state.Equals("unauthorized", StringComparison.OrdinalIgnoreCase)
-                                    ? "Unauthorized" : "Failed";
-                    }
-                    else
-                    {
-                        device.Status = "Failed";
-                    }
-
-                    // 자동 재연결 스케줄링 (Unauthorized는 사용자가 승인 필요하므로 스킵)
-                    if (device.Status == "Offline" || device.Status == "Failed")
-                        ScheduleReconnect(device);
-                }
-            }
-            finally
-            {
-                _isConnCheckRunning = false;
-            }
-        }
-
-        private void ScheduleReconnect(Device device)
-        {
-            if (device == null || string.IsNullOrWhiteSpace(device.Ip)) return;
-
-            ReconnectState st;
-            lock (_reconnectStates)
-            {
-                if (!_reconnectStates.TryGetValue(device.Ip, out st))
-                {
-                    st = new ReconnectState { Attempt = 0, NextUtc = DateTime.MinValue, IsRunning = false };
-                    _reconnectStates[device.Ip] = st;
-                }
-
-                // 아직 대기 시간
-                if (st.IsRunning || DateTime.UtcNow < st.NextUtc) return;
-                st.IsRunning = true;
-            }
-
-            _ = Task.Run(async () =>
-            {
-                bool ok = false;
-                try
-                {
-                    ok = await TryReconnectDeviceAsync(device);
-                }
-                catch { }
-                finally
-                {
-                    lock (_reconnectStates)
-                    {
-                        if (_reconnectStates.TryGetValue(device.Ip, out var s))
-                        {
-                            if (ok)
-                            {
-                                s.Attempt = 0;
-                                s.NextUtc = DateTime.UtcNow.AddSeconds(2);
-                            }
-                            else
-                            {
-                                s.Attempt = Math.Min(s.Attempt + 1, 10);
-                                // 지수 백오프 (최대 60초)
-                                var delaySec = Math.Min(60, (int)Math.Pow(2, s.Attempt));
-                                s.NextUtc = DateTime.UtcNow.AddSeconds(delaySec);
-                            }
-                            s.IsRunning = false;
-                        }
-                    }
-                }
-            });
-        }
-
-        private async Task<bool> TryReconnectDeviceAsync(Device device)
-        {
-            if (device == null) return false;
-
-            // 1) 기존 주소로 재연결 시도
-            string output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
-            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-            {
-                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
-                return true;
-            }
-
-            // 2) 간단한 정리 후 재시도
-            RunCmd($"adb disconnect {device.Ip}", 1000);
-            output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
-            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-            {
-                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
-                return true;
-            }
-
-            // 3) mDNS에서 동일 IP의 최신 포트 확인 후 재시도 (빠른 경로)
-            try
-            {
-                var mdns = await AdbMdnsDiscovery.DiscoverAsync(2500);
-                string ipOnly = device.Ip.Split(':')[0];
-                var cand = mdns.FirstOrDefault(t => string.Equals(t.ip, ipOnly, StringComparison.OrdinalIgnoreCase));
-                if (!string.IsNullOrEmpty(cand.ip) && cand.port > 0)
-                {
-                    string addr = $"{cand.ip}:{cand.port}";
-                    string out2 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
-                    if (out2.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                        out2.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            device.Ip = addr; // 포트 갱신
-                            device.Status = "Connected";
-                        });
-                        return true;
+                        statusMap[addr] = state;
                     }
                 }
             }
-            catch { }
 
-            // 4) 기본 포트(5555) 빠른 체크
-            try
+            foreach (var device in Devices.ToList())
             {
-                string ipOnly = device.Ip.Split(':')[0];
-                if (await TryConnectPort(ipOnly, 5555, CancellationToken.None))
+                if (statusMap.TryGetValue(device.Ip, out var state))
                 {
-                    string addr = $"{ipOnly}:5555";
-                    string out3 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
-                    if (out3.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
-                        out3.Contains("already connected", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            device.Ip = addr;
-                            device.Status = "Connected";
-                        });
-                        return true;
-                    }
+                    device.Status = state.Equals("device", StringComparison.OrdinalIgnoreCase)
+                        ? "Connected"
+                        : state.Equals("offline", StringComparison.OrdinalIgnoreCase)
+                            ? "Offline"
+                            : state.Equals("unauthorized", StringComparison.OrdinalIgnoreCase)
+                                ? "Unauthorized" : "Failed";
+                }
+                else
+                {
+                    device.Status = "Failed";
                 }
             }
-            catch { }
-
-            return false;
         }
 
         private async void UpdateBatteryStatus(object? sender, EventArgs e)
         {
-            if (_isBatteryCheckRunning) return; // 중복 실행 방지
-            _isBatteryCheckRunning = true;
-            try
+            foreach (var device in Devices.ToList())
             {
-                foreach (var device in Devices.ToList())
-                {
-                    if (device == null || device.Status != "Connected") continue;
+                if (device == null || device.Status != "Connected") continue;
 
-                    try
+                try
+                {
+                    int batteryLevel = await Task.Run(() => GetBatteryLevel(device.Ip));
+                    Dispatcher.Invoke(() =>
                     {
-                        int batteryLevel = await Task.Run(() => GetBatteryLevel(device.Ip));
-                        Dispatcher.Invoke(() =>
-                        {
-                            Device d = Devices.FirstOrDefault(d => d.Ip == device.Ip);
-                            if (d == null) return; // 이미 제거된 경우
-                            d.BatteryLevel = batteryLevel;
-                        });
-                    }
-                    catch
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            Device d = Devices.FirstOrDefault(d => d.Ip == device.Ip);
-                            if (d == null) return; // 이미 제거된 경우
-                            d.BatteryLevel = 0;
-                        });
-                    }
+                        Device d = Devices.FirstOrDefault(d => d.Ip == device.Ip);
+                        if (d == null) return; // 이미 제거된 경우
+                        d.BatteryLevel = batteryLevel;
+                    });
                 }
-            }
-            finally
-            {
-                _isBatteryCheckRunning = false;
+                catch
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        Device d = Devices.FirstOrDefault(d => d.Ip == device.Ip);
+                        if (d == null) return; // 이미 제거된 경우
+                        d.BatteryLevel = 0;
+                    });
+                }
             }
         }
 
