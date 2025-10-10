@@ -45,10 +45,6 @@ namespace MultiQuest_Management
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
-        // 동시 실행 scrcpy 제한 (예: 4)
-        private static readonly int ScrcpyMaxConcurrency = 4;
-        private static readonly SemaphoreSlim _scrcpySemaphore = new(ScrcpyMaxConcurrency, ScrcpyMaxConcurrency);
-
         // 자동 재연결 상태 관리
         private sealed class ReconnectState
         {
@@ -62,27 +58,6 @@ namespace MultiQuest_Management
         private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
 
         public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
-
-        // IPv4 또는 IPv4:PORT 형태만 허용
-        private static bool IsValidIpEndpoint(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value)) return false;
-            var s = value.Trim();
-            // ip:port
-            var idx = s.LastIndexOf(':');
-            if (idx > 0 && idx < s.Length - 1)
-            {
-                var host = s.Substring(0, idx);
-                var portStr = s[(idx + 1)..];
-                if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork &&
-                    int.TryParse(portStr, out var port) && port > 0 && port <= 65535)
-                {
-                    return true;
-                }
-            }
-            // ip only
-            return IPAddress.TryParse(s, out var ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork;
-        }
 
         public MainWindow()
         {
@@ -171,25 +146,20 @@ namespace MultiQuest_Management
                     var parts = line.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length > 0)
                     {
-                        string addr = parts[0];
-                        if (!IsValidIpEndpoint(addr)) continue; // IP 형식이 아니면 무시
-                        if (Devices.Any(d => d.Ip == addr)) continue; // 이미 같은 주소 존재
-
-                        string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1000, 5, 300).Trim();
-                        if (string.IsNullOrEmpty(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
-                            serial = "UnknownSerial";
-
-                        // 같은 시리얼이 이미 있으면 추가하지 않음
-                        if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
-                            Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)))
-                            continue;
-
-                        AddDevice(new Device
+                        string ip = parts[0];
+                        if (!Devices.Any(d => d.Ip == ip))
                         {
-                            Serial = serial,
-                            Ip = addr,
-                            Status = "Connected"
-                        });
+                            string serial = RunCmdWithRetry($"adb -s {ip} shell getprop ro.serialno", 1000, 5, 300).Trim();
+                            if (string.IsNullOrEmpty(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                                serial = "UnknownSerial";
+
+                            AddDevice(new Device
+                            {
+                                Serial = serial,
+                                Ip = ip,
+                                Status = "Connected"
+                            });
+                        }
                     }
                 }
             }
@@ -491,8 +461,8 @@ namespace MultiQuest_Management
             string arguments = string.Join(" ", argList);
 
             int maxRetry = 5;
-            int pollIntervalMs = 100;   // 폴링 간격을 늘려 CPU 사용 감소
-            int maxWaitMs = 10000;      // 창 핸들 대기 최대 시간 (10초로 증가)
+            int pollIntervalMs = 50;   // 짧은 폴링 간격으로 즉시 부착 시도
+            int maxWaitMs = 4000;      // 창 핸들 대기 최대 시간
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -569,27 +539,6 @@ namespace MultiQuest_Management
             }
 
             return newProc;
-        }
-
-        public async Task<Process> StartMirroringWithSemaphoreAsync(Device device, int width, int height, CancellationToken cancellationToken)
-        {
-            await _scrcpySemaphore.WaitAsync(cancellationToken);
-            try
-            {
-                int maxRetry = 3;
-                for (int attempt = 1; attempt <= maxRetry; attempt++)
-                {
-                    var proc = await StartMirroringAsync(device, width, height, cancellationToken);
-                    if (proc != null && !proc.HasExited)
-                        return proc;
-                    await Task.Delay(300, cancellationToken); // 실패시 잠시 대기 후 재시도
-                }
-                return null;
-            }
-            finally
-            {
-                _scrcpySemaphore.Release();
-            }
         }
 
         public void StartApp(Device device, int index, Action onCompleted = null)
@@ -1367,14 +1316,6 @@ namespace MultiQuest_Management
                 return;
             }
 
-            // 사용자가 IP가 아닌 시리얼/텍스트를 입력한 경우 추가하지 않음
-            if (!IsValidIpEndpoint(ip))
-            {
-                ShowMsg("IP 형식이 올바르지 않습니다. 예) 192.168.0.10:5555");
-                this.IsEnabled = true;
-                return;
-            }
-
             if (Devices.Any(d => d.Ip.Split(':')[0] == ip))
             {
                 ShowMsg($"{ip} 기기는 이미 연결되어 있습니다.");
@@ -1427,15 +1368,6 @@ namespace MultiQuest_Management
         private void AddDevice(Device device)
         {
             if (device == null || string.IsNullOrEmpty(device.Ip)) { ShowMsg("유효하지 않은 기기 정보입니다."); return; }
-            // IP 형식이 아닌(시리얼 형태 등) 항목은 추가하지 않음
-            if (!IsValidIpEndpoint(device.Ip)) return;
-            // 같은 시리얼 넘버가 이미 있으면 추가하지 않음 (UnknownSerial 제외)
-            if (!string.IsNullOrWhiteSpace(device.Serial) &&
-                !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
-                Devices.Any(d => string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase)))
-            {
-                return;
-            }
             if (Devices.Any(d => d.Ip == device.Ip)) { ShowMsg($"{device.Name} 기기는 이미 목록에 있습니다."); return; }
             if (device.Status != "Connected") { ShowMsg($"{device.Name} 기기가 연결되어 있지 않습니다."); return; }
             device.BatteryLevel = GetBatteryLevel(device.Ip); // 배터리 잔량 초기화
@@ -1539,7 +1471,7 @@ namespace MultiQuest_Management
                 if (host == null) return;
             }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device,
+            var proc = await StartMirroringAsync(device,
                 (int)Math.Max(1, host.ActualWidth),
                 (int)Math.Max(1, host.ActualHeight),
                 CancellationToken.None);
@@ -1655,7 +1587,7 @@ namespace MultiQuest_Management
                 return;
             }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            var proc = await StartMirroringAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
             if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); return; }
 
             _scrcpy[device.Ip] = proc;
@@ -1684,7 +1616,7 @@ namespace MultiQuest_Management
             var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
             if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); _isRefreshing = false; return; }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            var proc = await StartMirroringAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
             if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
 
             _scrcpy[device.Ip] = proc;
