@@ -198,11 +198,11 @@
                     Width="200" FontSize="20" FontWeight="Bold"
                     Style="{StaticResource NeonButton}" Foreground="{StaticResource Bad}" Height="50" VerticalAlignment="Bottom"/>
 
-            <!-- ========== 4×4 슬롯: Devices 바인딩 ========== -->
+            <!-- ========== 3×3 슬롯: Devices 바인딩 ========== -->
             <ItemsControl x:Name="Tiles" ItemsSource="{Binding Devices}" Margin="10,20,268,24">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <UniformGrid Rows="4" Columns="4"/>
+                        <UniformGrid Rows="3" Columns="3"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
 

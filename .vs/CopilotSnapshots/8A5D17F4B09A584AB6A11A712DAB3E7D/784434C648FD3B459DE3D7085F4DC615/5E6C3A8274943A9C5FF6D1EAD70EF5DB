@@ -84,33 +84,6 @@ namespace MultiQuest_Management
             return IPAddress.TryParse(s, out var ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork;
         }
 
-        // adb devices 목록 중 'ip가 아닌 식별자(USB 등)'로 연결된 디바이스 시리얼 목록 가져오기
-        private HashSet<string> GetNonIpAdbSerials()
-        {
-            var serials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                string output = RunCmd("adb devices", 3000);
-                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var line in lines)
-                {
-                    var trimmed = line.Trim();
-                    var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        var addr = parts[0];
-                        var state = parts[^1];
-                        if (!IsValidIpEndpoint(addr) && state.Equals("device", StringComparison.OrdinalIgnoreCase))
-                        {
-                            serials.Add(addr);
-                        }
-                    }
-                }
-            }
-            catch { }
-            return serials;
-        }
-
         public MainWindow()
         {
             EnsureAdbRunning();
@@ -191,9 +164,6 @@ namespace MultiQuest_Management
             string adbOutput = RunCmd("adb devices", 3000);
             var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-            // USB(비-IP)로 연결된 기기의 시리얼 목록을 확보하여 중복 추가 방지
-            var nonIpSerials = GetNonIpAdbSerials();
-
             foreach (var line in lines)
             {
                 if (line.TrimEnd().EndsWith("device"))
@@ -209,10 +179,9 @@ namespace MultiQuest_Management
                         if (string.IsNullOrEmpty(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
                             serial = "UnknownSerial";
 
-                        // 같은 시리얼이 이미 있거나, USB(비-IP) 연결 상태면 추가하지 않음
+                        // 같은 시리얼이 이미 있으면 추가하지 않음
                         if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
-                            (Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)) ||
-                             nonIpSerials.Contains(serial)))
+                            Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)))
                             continue;
 
                         AddDevice(new Device
@@ -1435,22 +1404,8 @@ namespace MultiQuest_Management
                     if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
                         output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
                     {
-                        // 실제 시리얼 획득
-                        string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1200, 3, 200).Trim();
-                        if (string.IsNullOrWhiteSpace(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
-                            serial = "UnknownSerial";
-
-                        // USB(비-IP) 연결된 동일 시리얼이 존재하면 추가하지 않음
-                        var nonIpSerials = GetNonIpAdbSerials();
-                        if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) && nonIpSerials.Contains(serial))
-                        {
-                            ShowMsg("해당 기기는 USB(비-IP)로 ADB에 연결되어 있어 목록에 추가하지 않습니다.");
-                            connected = true; // 연결은 되었지만 목록 추가는 하지 않음
-                            break;
-                        }
-
                         connected = true;
-                        AddDevice(new Device { Serial = serial, Ip = addr, Status = "Connected" });
+                        AddDevice(new Device { Serial = name, Ip = addr, Status = "Connected" });
                         ShowMsg($"{name} 기기가 성공적으로 연결되었습니다.\nIP: {addr}");
                         break;
                     }
@@ -1478,14 +1433,6 @@ namespace MultiQuest_Management
             if (!string.IsNullOrWhiteSpace(device.Serial) &&
                 !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
                 Devices.Any(d => string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase)))
-            {
-                return;
-            }
-            // 현재 ADB에 USB(비-IP)로 연결된 동일 시리얼이 있으면 추가하지 않음
-            var nonIpSerials = GetNonIpAdbSerials();
-            if (!string.IsNullOrWhiteSpace(device.Serial) &&
-                !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
-                nonIpSerials.Contains(device.Serial))
             {
                 return;
             }
