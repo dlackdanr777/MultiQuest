@@ -98,23 +98,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\muks\\.nuget\\packages\\": {},
+    "C:\\Users\\Muks\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
+      "projectUniqueName": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
       "projectName": "MultiQuest-Management",
-      "projectPath": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
-      "packagesPath": "C:\\Users\\muks\\.nuget\\packages\\",
-      "outputPath": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\obj\\",
+      "projectPath": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
+      "packagesPath": "C:\\Users\\Muks\\.nuget\\packages\\",
+      "outputPath": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\muks\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\Muks\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],

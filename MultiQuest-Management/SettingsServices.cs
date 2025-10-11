@@ -17,8 +17,7 @@ namespace MultiQuest_Management
         // 저장/로드 시 최신 딕셔너리 즉시 알림
         public event Action<IReadOnlyDictionary<string, string>> Changed;
 
-        private readonly string _dir =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MultiQuest_Management");
+        private readonly string _dir = AppDomain.CurrentDomain.BaseDirectory;
         private readonly string _file;
 
         private SettingsService()

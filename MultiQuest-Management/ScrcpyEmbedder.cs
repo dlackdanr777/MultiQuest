@@ -28,18 +28,24 @@ namespace MultiQuest_Management
             var hwnd = proc.MainWindowHandle;
             if (hwnd == IntPtr.Zero) return;
 
-            // 부모를 owner로 설정
             SetParent(hwnd, new WindowInteropHelper(owner).Handle);
 
-            // 좌표/크기(DPI 반영)
-            var pt = host.TransformToAncestor(owner).Transform(new Point(0, 0));
-            var dpi = VisualTreeHelper.GetDpi(owner);
-            int x = (int)(pt.X * dpi.DpiScaleX);
-            int y = (int)(pt.Y * dpi.DpiScaleY);
-            int w = (int)(host.ActualWidth * dpi.DpiScaleX);
-            int h = (int)(host.ActualHeight * dpi.DpiScaleY);
+            // 반드시 UI 스레드에서 좌표 계산
+            Point pt = default;
+            double dpiX = 1, dpiY = 1;
+            owner.Dispatcher.Invoke(() =>
+            {
+                pt = host.TransformToAncestor(owner).Transform(new Point(0, 0));
+                var dpi = VisualTreeHelper.GetDpi(owner);
+                dpiX = dpi.DpiScaleX;
+                dpiY = dpi.DpiScaleY;
+            });
 
-            // 테두리 제거
+            int x = (int)(pt.X * dpiX);
+            int y = (int)(pt.Y * dpiY);
+            int w = (int)(host.ActualWidth * dpiX);
+            int h = (int)(host.ActualHeight * dpiY);
+
             int style = GetWindowLong(hwnd, GWL_STYLE);
             style &= ~WS_CAPTION;
             style &= ~WS_THICKFRAME;
@@ -55,12 +61,20 @@ namespace MultiQuest_Management
             var hwnd = proc.MainWindowHandle;
             if (hwnd == IntPtr.Zero) return;
 
-            var pt = host.TransformToAncestor(owner).Transform(new Point(0, 0));
-            var dpi = VisualTreeHelper.GetDpi(owner);
-            int x = (int)(pt.X * dpi.DpiScaleX);
-            int y = (int)(pt.Y * dpi.DpiScaleY);
-            int w = (int)(host.ActualWidth * dpi.DpiScaleX);
-            int h = (int)(host.ActualHeight * dpi.DpiScaleY);
+            Point pt = default;
+            double dpiX = 1, dpiY = 1;
+            owner.Dispatcher.Invoke(() =>
+            {
+                pt = host.TransformToAncestor(owner).Transform(new Point(0, 0));
+                var dpi = VisualTreeHelper.GetDpi(owner);
+                dpiX = dpi.DpiScaleX;
+                dpiY = dpi.DpiScaleY;
+            });
+
+            int x = (int)(pt.X * dpiX);
+            int y = (int)(pt.Y * dpiY);
+            int w = (int)(host.ActualWidth * dpiX);
+            int h = (int)(host.ActualHeight * dpiY);
 
             MoveWindow(hwnd, x, y, w, h, true);
         }

@@ -59,7 +59,7 @@ namespace MultiQuest_Management
         private readonly Dictionary<string, ReconnectState> _reconnectStates = new(StringComparer.OrdinalIgnoreCase);
 
         // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머
-        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(50) };
+        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(500) }; // 500ms로 증가
 
         public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
 
@@ -142,7 +142,7 @@ namespace MultiQuest_Management
             _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
             _connectionCheckTimer.Start();
 
-            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(180) };
+            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
             _keyEventTimer.Tick += KeyEventTimer_Tick;
             _keyEventTimer.Start();
 
@@ -152,6 +152,8 @@ namespace MultiQuest_Management
 
             SettingsService.Instance.Changed += OnChangeSerialName;
             OnChangeSerialName(_serialNameDic);
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
         }
 
         // 레이아웃이 바뀌면 짧게 디바운스 후 모든 임베드 창을 현재 호스트에 맞춰 재정렬
@@ -165,13 +167,13 @@ namespace MultiQuest_Management
         // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재정렬
         private void AdjustAllEmbeddedScrcpy()
         {
-            foreach (var kv in _scrcpy.ToList())
+            foreach (var entry in _scrcpy.ToList())
             {
-                var ip = kv.Key;
-                var proc = kv.Value;
+                var ip = entry.Key;
+                var proc = entry.Value;
                 try
                 {
-                    if (proc == null || proc.HasExited) continue;
+                    if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) continue; // 창 핸들 살아있을 때만
                     var device = Devices.FirstOrDefault(d => d.Ip == ip && d.IsConnected);
                     if (device == null) continue;
                     var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
@@ -467,6 +469,31 @@ namespace MultiQuest_Management
                     device.Name = device.Serial; // 시리얼을 이름으로 사용
                 }
             }
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
+        }
+
+        // 디바이스 이름(Label) 즉시 반영
+        private void UpdateDeviceLabels()
+        {
+            // MultiMirrorWindow에도 반영 필요
+            if (_multiMirrorWindow != null)
+            {
+                try { _multiMirrorWindow.GetType().GetMethod("UpdateDeviceLabels")?.Invoke(_multiMirrorWindow, null); } catch { }
+            }
+            // MainWindow 타일 이름도 즉시 반영
+            if (Tiles != null && Devices != null)
+            {
+                foreach (var device in Devices)
+                {
+                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                    if (host != null)
+                    {
+                        var label = FindVisualChildByName<System.Windows.Controls.Label>(host, "DeviceNameLabel");
+                        if (label != null) label.Content = device.Name;
+                    }
+                }
+            }
         }
 
         // ====================== 앱 버튼들 ======================
@@ -502,10 +529,11 @@ namespace MultiQuest_Management
             string videoCodec = "h264";
             bool noAudio = true;
             int bitrateMbps = 1;
-            int maxFps = 12;
+            int maxFps = 8; // 낮은 FPS
             int displayId = 0;
             string windowTitle = device.Name;
             int windowWidth = width, windowHeight = height;
+            int maxSize = 320; // 해상도 제한
 
             var argList = new[]
             {
@@ -514,6 +542,7 @@ namespace MultiQuest_Management
                 noAudio ? "--no-audio" : "",
                 $"-b {bitrateMbps}M",
                 $"--max-fps {maxFps}",
+                $"--max-size {maxSize}",
                 $"--display-id={displayId}",
                 $"--window-title \"{windowTitle}\"",
                 $"--window-width={windowWidth}",
@@ -676,17 +705,19 @@ namespace MultiQuest_Management
             onCompleted?.Invoke();
         }
 
-        // 순차 처리로 변경
+        // 병렬 처리로 변경
         private void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
         {
             this.IsEnabled = false;
             if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
-            foreach (var device in Devices)
+            // 병렬로 앱 종료 처리
+            Parallel.ForEach(Devices.Where(d => d.Status == "Connected"), device =>
             {
-                if (device.Status != "Connected") continue;
                 foreach (var pkg in _pkgNames)
+                {
                     RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 1000);
-            }
+                }
+            });
             Dispatcher.Invoke(() => { ShowMsg("전체 기기 앱 종료"); this.IsEnabled = true; });
         }
 
@@ -1496,7 +1527,9 @@ namespace MultiQuest_Management
             device.Name = Name;
 
             Devices.Add(device);          // 컬렉션에 추가하면 HookDevice에서 자동 미러링 시작
-            AddDeviceEvent?.Invoke(device);
+            // 중복 scrcpy 방지: 미러링이 이미 시작된 경우 이벤트 호출 생략
+            if (!_scrcpy.ContainsKey(device.Ip))
+                AddDeviceEvent?.Invoke(device);
         }
 
         public int GetBatteryLevel(string deviceIp)
@@ -1538,12 +1571,12 @@ namespace MultiQuest_Management
             // 템플릿 새로 생성 후, 붙어있는 scrcpy들 위치 재조정
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                foreach (var kv in _scrcpy.ToList())
+                foreach (var entry in _scrcpy.ToList())
                 {
-                    var device = Devices.FirstOrDefault(d => d.Ip == kv.Key && d.IsConnected);
+                    var device = Devices.FirstOrDefault(d => d.Ip == entry.Key && d.IsConnected);
                     if (device == null) continue;
                     var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host != null) ScrcpyEmbedder.Adjust(kv.Value, host, this); // 변경
+                    if (host != null) ScrcpyEmbedder.Adjust(entry.Value, host, this); // 변경
                 }
             }), DispatcherPriority.Loaded);
         }
@@ -1576,11 +1609,18 @@ namespace MultiQuest_Management
         {
             lock (_mirrorLock)
             {
-                if (_scrcpy.TryGetValue(device.Ip, out var running) && !running.HasExited)
+                // 기존 프로세스가 있으면 종료
+                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
                 {
-                    var host0 = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host0 != null) ScrcpyEmbedder.Adjust(running, host0, this);
-                    return;
+                    try { old.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
+                }
+                // 혹시라도 중복 scrcpy가 있으면 모두 제거
+                var procsList = _scrcpy.Where(entry => entry.Key == device.Ip).Select(entry => entry.Value).ToList();
+                foreach (var procToKill in procsList)
+                {
+                    try { if (!procToKill.HasExited) procToKill.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
                 }
             }
 
@@ -1596,14 +1636,15 @@ namespace MultiQuest_Management
                 (int)Math.Max(1, host.ActualWidth),
                 (int)Math.Max(1, host.ActualHeight),
                 CancellationToken.None);
-            if (proc == null || proc.HasExited) return;
+            if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) return;
 
             lock (_mirrorLock)
             {
-                // 기존 프로세스가 있으면 종료
-                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
+                // 혹시라도 중복 scrcpy가 있으면 모두 제거
+                var procsList = _scrcpy.Where(entry => entry.Key == device.Ip).Select(entry => entry.Value).ToList();
+                foreach (var oldToKill in procsList)
                 {
-                    try { old.Kill(); } catch { }
+                    try { if (!oldToKill.HasExited) oldToKill.Kill(); } catch { }
                     _scrcpy.Remove(device.Ip);
                 }
                 _scrcpy[device.Ip] = proc;
@@ -1611,7 +1652,11 @@ namespace MultiQuest_Management
             proc.EnableRaisingEvents = true;
             proc.Exited += (s2, a2) => { lock (_mirrorLock) { _scrcpy.Remove(device.Ip); } };
 
-            ScrcpyEmbedder.Attach(proc, host, this);
+            // Attach/Adjust 호출 전에 _scrcpy에 등록된 프로세스가 1개만 존재하는지 확인
+            if (_scrcpy.Count(entry => entry.Key == device.Ip) == 1)
+            {
+                ScrcpyEmbedder.Attach(proc, host, this);
+            }
         }
 
         private void StopMirrorForDevice(Device device)
@@ -1629,10 +1674,10 @@ namespace MultiQuest_Management
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                foreach (var kv in _scrcpy.ToList())
+                foreach (var entry in _scrcpy.ToList())
                 {
-                    var ip = kv.Key;
-                    var proc = kv.Value;
+                    var ip = entry.Key;
+                    var proc = entry.Value;
                     var device = Devices.FirstOrDefault(d => d.Ip == ip);
                     if (device == null) continue;
 
@@ -1715,7 +1760,11 @@ namespace MultiQuest_Management
             proc.EnableRaisingEvents = true;
             proc.Exited += (s2, a2) => _scrcpy.Remove(device.Ip);
 
-            ScrcpyEmbedder.Attach(proc, host, this); // 변경
+            // Attach/Adjust 호출 전에 _scrcpy에 등록된 프로세스가 1개만 존재하는지 확인
+            if (_scrcpy.Count(entry => entry.Key == device.Ip) == 1)
+            {
+                ScrcpyEmbedder.Attach(proc, host, this);
+            }
         }
 
         private async void RefreshTile_Click(object sender, RoutedEventArgs e)
@@ -1728,23 +1777,34 @@ namespace MultiQuest_Management
             _isRefreshing = true;
             if ((sender as Button)?.CommandParameter is not Device device) { _isRefreshing = false; return; }
 
+            // 기존 scrcpy 프로세스가 있으면 모두 종료
             if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
             {
                 try { old.Kill(); } catch { }
+                _scrcpy.Remove(device.Ip);
+            }
+            var procsList2 = _scrcpy.Where(entry => entry.Key == device.Ip).Select(entry => entry.Value).ToList();
+            foreach (var procToKill in procsList2)
+            {
+                try { if (!procToKill.HasExited) procToKill.Kill(); } catch { }
                 _scrcpy.Remove(device.Ip);
             }
 
             var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
             if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); _isRefreshing = false; return; }
 
-            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
-            if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
+            var procNew = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            if (procNew == null || procNew.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
 
-            _scrcpy[device.Ip] = proc;
-            proc.EnableRaisingEvents = true;
-            proc.Exited += (s2, a2) => _scrcpy.Remove(device.Ip);
+            _scrcpy[device.Ip] = procNew;
+            procNew.EnableRaisingEvents = true;
+            procNew.Exited += (s2, a2) => _scrcpy.Remove(device.Ip);
 
-            ScrcpyEmbedder.Attach(proc, host, this); // 변경
+            // Attach/Adjust 호출 전에 _scrcpy에 등록된 프로세스가 1개만 존재하는지 확인
+            if (_scrcpy.Count(entry => entry.Key == device.Ip) == 1)
+            {
+                ScrcpyEmbedder.Attach(procNew, host, this);
+            }
             _isRefreshing = false;
         }
 
