@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO; // ← NuGet: Zeroconf
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -17,11 +18,11 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives; // GeneratorStatus
 using System.Windows.Media;
 using System.Windows.Threading;
+using Zeroconf;
+using System.Text.RegularExpressions;
 using Button = System.Windows.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
 using Window = System.Windows.Window;
-using Zeroconf;
-using System.IO; // ← NuGet: Zeroconf
 
 namespace MultiQuest_Management
 {
@@ -33,7 +34,7 @@ namespace MultiQuest_Management
         private DispatcherTimer _connectionCheckTimer;
         private DispatcherTimer _keyEventTimer;
         private DispatcherTimer _batteryCheckTimer;
-        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.StoryWing.XRStorywing" };
+        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.StoryWing.XRStorywing", "com.StoryWing.OceanAdventure_ViewVer", "com.StoryWing.SpaceAppTest" };
         private CancellationTokenSource _scanCancelSource;
         private MultiMirrorWindow _multiMirrorWindow;
         private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
@@ -142,7 +143,7 @@ namespace MultiQuest_Management
             _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
             _connectionCheckTimer.Start();
 
-            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(180) };
             _keyEventTimer.Tick += KeyEventTimer_Tick;
             _keyEventTimer.Start();
 
@@ -530,10 +531,10 @@ namespace MultiQuest_Management
             bool noAudio = true;
             int bitrateMbps = 1;
             int maxFps = 8; // 낮은 FPS
-            int displayId = 0;
+            string displayId = PickStableDisplayId(device.Ip);
             string windowTitle = device.Name;
             int windowWidth = width, windowHeight = height;
-            int maxSize = 320; // 해상도 제한
+            int maxSize = 480; // 해상도 제한
 
             var argList = new[]
             {
@@ -652,7 +653,84 @@ namespace MultiQuest_Management
             }
         }
 
-        public void StartApp(Device device, int index, Action onCompleted = null)
+
+static string PickStableDisplayId(string adbSerial)
+    {
+        // 1) dumpsys SurfaceFlinger
+        string sf = RunAdb(adbSerial, "shell dumpsys SurfaceFlinger --display-id");
+        // 2) 보조: dumpsys display
+        string dd = RunAdb(adbSerial, "shell dumpsys display");
+
+        // 여러 패턴을 모두 시도해서 후보 수집 (문자열 그대로 보관)
+        // 예) "Display 29", "Display 0x1234abcd", "mDisplayId=42", "displayId=9007199254740991"
+        var patterns = new[]
+        {
+        new Regex(@"Display\s+([0-9xa-fA-F]+)"),
+        new Regex(@"mDisplayId\s*=\s*([0-9xa-fA-F]+)"),
+        new Regex(@"displayId\s*=\s*([0-9xa-fA-F]+)")
+    };
+
+        var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        void Collect(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            var lines = text.Split('\n');
+
+            foreach (var line in lines)
+            {
+                foreach (var rx in patterns)
+                {
+                    var m = rx.Match(line);
+                    if (!m.Success) continue;
+
+                    string id = m.Groups[1].Value.Trim(); // ***중요: 문자열 그대로***
+                    if (!scores.ContainsKey(id)) scores[id] = 0;
+
+                    string lower = line.ToLowerInvariant();
+                    // 휴리스틱: 내부/기본/primary 키워드가 있으면 가산점
+                    if (lower.Contains("internal") || lower.Contains("built-in") || lower.Contains("default")) scores[id] += 10;
+                    if (lower.Contains("primary")) scores[id] += 5;
+                    // on/off, presentable 등의 힌트도 가산
+                    if (lower.Contains("on") || lower.Contains("present")) scores[id] += 2;
+                }
+            }
+        }
+
+        Collect(sf);
+        Collect(dd);
+
+        if (scores.Count == 0)
+            return "0"; // 폴백
+
+        // 점수 높은 순 → 동일하면 짧은(보통 10진) ID 우선
+        return scores
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key.Length)
+            .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+            .First().Key;
+    }
+
+    static string RunAdb(string serial, string args)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "adb",
+            Arguments = $"-s {serial} {args}",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using var p = Process.Start(psi);
+        string output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit(2000);
+        return output;
+    }
+
+
+
+    public void StartApp(Device device, int index, Action onCompleted = null)
         {
             if (device == null || device.Status != "Connected") { ShowMsg("기기를 확인하세요."); return; }
 
@@ -706,19 +784,29 @@ namespace MultiQuest_Management
         }
 
         // 병렬 처리로 변경
-        private void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
+        private async void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
         {
             this.IsEnabled = false;
             if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
-            // 병렬로 앱 종료 처리
-            Parallel.ForEach(Devices.Where(d => d.Status == "Connected"), device =>
+
+            // 시작 안내 멘트 (UI가 바쁘지 않도록 비동기 처리)
+            Dispatcher.BeginInvoke(new Action(() => ShowMsg("전체 기기 앱 종료중...")));
+
+            // 무거운 작업은 백그라운드에서 처리하여 안내 멘트가 즉시 표시되도록 함
+            await Task.Run(() =>
             {
-                foreach (var pkg in _pkgNames)
+                Parallel.ForEach(Devices.Where(d => d.Status == "Connected"), device =>
                 {
-                    RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 1000);
-                }
+                    foreach (var pkg in _pkgNames)
+                    {
+                        RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 800);
+                    }
+                });
             });
-            Dispatcher.Invoke(() => { ShowMsg("전체 기기 앱 종료"); this.IsEnabled = true; });
+
+            // 완료 안내
+            ShowMsg("전체 기기 앱 종료");
+            this.IsEnabled = true;
         }
 
         private async void MdnsDiscoveryButton_Click(object sender, RoutedEventArgs e)
