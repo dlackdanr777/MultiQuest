@@ -654,68 +654,94 @@ namespace MultiQuest_Management
         }
 
 
-static string PickStableDisplayId(string adbSerial)
-    {
-        // 1) dumpsys SurfaceFlinger
-        string sf = RunAdb(adbSerial, "shell dumpsys SurfaceFlinger --display-id");
-        // 2) 보조: dumpsys display
-        string dd = RunAdb(adbSerial, "shell dumpsys display");
-
-        // 여러 패턴을 모두 시도해서 후보 수집 (문자열 그대로 보관)
-        // 예) "Display 29", "Display 0x1234abcd", "mDisplayId=42", "displayId=9007199254740991"
-        var patterns = new[]
+        static string PickStableDisplayId(string adbSerial)
         {
+            string sf = RunAdb(adbSerial, "shell dumpsys SurfaceFlinger --display-id");
+            string dd = RunAdb(adbSerial, "shell dumpsys display");
+            string cd = RunAdb(adbSerial, "shell cmd display list"); // 추가: 가장 신뢰도 높음
+
+            var patterns = new[]
+            {
         new Regex(@"Display\s+([0-9xa-fA-F]+)"),
         new Regex(@"mDisplayId\s*=\s*([0-9xa-fA-F]+)"),
         new Regex(@"displayId\s*=\s*([0-9xa-fA-F]+)")
     };
 
-        var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-        void Collect(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return;
-            var lines = text.Split('\n');
-
-            foreach (var line in lines)
+            void Bump(string id, int delta)
             {
-                foreach (var rx in patterns)
+                if (string.IsNullOrWhiteSpace(id)) return;
+                if (!scores.ContainsKey(id)) scores[id] = 0;
+                scores[id] += delta;
+            }
+
+            void Collect(string text)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return;
+                var lines = text.Split('\n');
+
+                foreach (var line in lines)
                 {
-                    var m = rx.Match(line);
-                    if (!m.Success) continue;
+                    foreach (var rx in patterns)
+                    {
+                        var m = rx.Match(line);
+                        if (!m.Success) continue;
 
-                    string id = m.Groups[1].Value.Trim(); // ***중요: 문자열 그대로***
-                    if (!scores.ContainsKey(id)) scores[id] = 0;
+                        string id = m.Groups[1].Value.Trim();
+                        Bump(id, 0);
 
-                    string lower = line.ToLowerInvariant();
-                    // 휴리스틱: 내부/기본/primary 키워드가 있으면 가산점
-                    if (lower.Contains("internal") || lower.Contains("built-in") || lower.Contains("default")) scores[id] += 10;
-                    if (lower.Contains("primary")) scores[id] += 5;
-                    // on/off, presentable 등의 힌트도 가산
-                    if (lower.Contains("on") || lower.Contains("present")) scores[id] += 2;
+                        string lower = line.ToLowerInvariant();
+
+                        // 강한 가산: 기본/물리
+                        if (lower.Contains("flag_default_display")) Bump(id, +50);
+                        if (lower.Contains("mdefaultdisplay=true")) Bump(id, +40);
+                        if (lower.Contains("type=physical")) Bump(id, +20);
+
+                        // 보조 가산: 기본/내장/주 디스플레이 언급
+                        if (lower.Contains("built-in") || lower.Contains("internal") || lower.Contains("primary") || lower.Contains("default"))
+                            Bump(id, +10);
+
+                        // 강한 감점: 가상/미러
+                        if (lower.Contains("virtual") || lower.Contains("overlay") || lower.Contains("wifi") ||
+                            lower.Contains("cast") || lower.Contains("presentation"))
+                            Bump(id, -40);
+
+                        // (중요) 전원 관련 단서는 제거하거나 아주 약하게만 반영
+                        // if (lower.Contains("on") || lower.Contains("present")) Bump(id, +1);
+                    }
                 }
             }
+
+            // 우선순위: cmd display → dumpsys display → SF
+            Collect(cd);
+            Collect(dd);
+            Collect(sf);
+
+            if (scores.Count == 0) return "0";
+
+            // 동일 점수면: (1) 물리 표식 있는 쪽, (2) 키 길이 짧은 쪽(대개 10진), (3) 사전순
+            return scores
+                .OrderByDescending(kv => kv.Value)
+                .ThenByDescending(kv =>
+                {
+                    // type=PHYSICAL 언급이 같은 블록에 있었는지 대략 유추(가산을 이미 줬지만 타이브레이커에 한 번 더 반영)
+                    // 점수로도 반영됐으니 0/1로만 보조 타이브레이커
+                    // 이건 간단히: 점수에 type=PHYSICAL(+20)가 들어있었다면 true로 취급
+                    // 구현 간소화를 위해 값이 20 이상 가산됐는지 체크하는 대신, 길이 보조만 둬도 충분함
+                    return 0;
+                })
+                .ThenBy(kv => kv.Key.Length)
+                .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .First().Key;
         }
 
-        Collect(sf);
-        Collect(dd);
 
-        if (scores.Count == 0)
-            return "0"; // 폴백
-
-        // 점수 높은 순 → 동일하면 짧은(보통 10진) ID 우선
-        return scores
-            .OrderByDescending(kv => kv.Value)
-            .ThenBy(kv => kv.Key.Length)
-            .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .First().Key;
-    }
-
-    static string RunAdb(string serial, string args)
+        static string RunAdb(string serial, string args)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "adb",
+            FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe"),
             Arguments = $"-s {serial} {args}",
             UseShellExecute = false,
             RedirectStandardOutput = true,
