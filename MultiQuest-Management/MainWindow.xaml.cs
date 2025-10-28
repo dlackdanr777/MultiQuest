@@ -825,7 +825,7 @@ namespace MultiQuest_Management
                 {
                     foreach (var pkg in _pkgNames)
                     {
-                        RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 800);
+                        RunCmdWithRetry($"adb -s {device.Ip} shell am force-stop {pkg}", 500, 3, 100);
                     }
                 });
             });
