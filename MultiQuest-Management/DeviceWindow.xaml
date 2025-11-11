@@ -284,7 +284,7 @@
                             <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Brain</Run><LineBreak/><Run>Training</Run></TextBlock>
                         </Button>
                         <Button Grid.Row="3" Grid.Column="1" Margin="4" Click="StartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                            <TextBlock Text="Storywing" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                            <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Korean</Run><LineBreak/><Run>History2</Run></TextBlock>
                         </Button>
                         <Button Grid.Row="4" Grid.Column="0" Margin="4" Click="StartAppBtn_Click" Tag="8" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
                             <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>오션</Run><LineBreak/><Run>관람 버전</Run></TextBlock>

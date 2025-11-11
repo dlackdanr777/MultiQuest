@@ -34,7 +34,7 @@ namespace MultiQuest_Management
         private DispatcherTimer _connectionCheckTimer;
         private DispatcherTimer _keyEventTimer;
         private DispatcherTimer _batteryCheckTimer;
-        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.StoryWing.XRStorywing", "com.StoryWing.OceanAdventure_ViewVer", "com.StoryWing.SpaceAppTest" };
+        private readonly string[] _pkgNames = { "com.StoryWing.FirepreventionApp", "com.StoryWing.SpaceApp", "com.StoryWing.OceanAdventure", "com.StoryWing.AlphabatApp", "com.StoryWing.GyeongjuMR", "com.StoryWing.XR_Museum", "com.StoryWing.XR_BrainTraining", "com.StoryWing.KoreaHistory2", "com.StoryWing.OceanAdventure_ViewVer", "com.StoryWing.SpaceAppTest" };
         private CancellationTokenSource _scanCancelSource;
         private MultiMirrorWindow _multiMirrorWindow;
         private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
