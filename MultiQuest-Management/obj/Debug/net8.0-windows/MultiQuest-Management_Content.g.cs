@@ -8,6 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("bin/debug/net8.0-windows/images/icon.ico")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/battery.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/btn_g01blue.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/englishtown.png")]

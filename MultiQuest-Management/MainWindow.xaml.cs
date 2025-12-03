@@ -1,28 +1,25 @@
 ﻿// MainWindow.cs
-using System;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO; // ← NuGet: Zeroconf
-using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives; // GeneratorStatus
 using System.Windows.Media;
 using System.Windows.Threading;
 using Zeroconf;
-using System.Text.RegularExpressions;
 using Button = System.Windows.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
 using Window = System.Windows.Window;
+
 
 namespace MultiQuest_Management
 {
@@ -530,30 +527,18 @@ namespace MultiQuest_Management
             string videoCodec = "h264";
             bool noAudio = true;
             int bitrateMbps = 1;
-            int maxFps = 8; // 낮은 FPS
+            int maxFps = 8;
             string displayId = PickStableDisplayId(device.Ip);
             string windowTitle = device.Name;
             int windowWidth = width, windowHeight = height;
-            int maxSize = 480; // 해상도 제한
-
-            var argList = new[]
-            {
-                $"-s {device.Ip}",
-                $"--video-codec={videoCodec}",
-                noAudio ? "--no-audio" : "",
-                $"-b {bitrateMbps}M",
-                $"--max-fps {maxFps}",
-                $"--max-size {maxSize}",
-                $"--display-id={displayId}",
-                $"--window-title \"{windowTitle}\"",
-                $"--window-width={windowWidth}",
-                $"--window-height={windowHeight}"
-            }.Where(s => !string.IsNullOrWhiteSpace(s));
-            string arguments = string.Join(" ", argList);
+            int maxSize = 480;
+            const string quest3LeftEyeCrop = "2064:2208:0:0";
+            // ★ 첫 시도에서는 display-id 사용, 실패하면 끄고 재시도
+            bool useDisplayId = !string.IsNullOrWhiteSpace(displayId);
 
             int maxRetry = 5;
-            int pollIntervalMs = 100;   // 폴링 간격을 늘려 CPU 사용 감소
-            int maxWaitMs = 10000;      // 창 핸들 대기 최대 시간 (10초로 증가)
+            int pollIntervalMs = 100;
+            int maxWaitMs = 10000;
             Process newProc = null;
 
             for (int attempt = 1; attempt <= maxRetry; attempt++)
@@ -562,6 +547,24 @@ namespace MultiQuest_Management
 
                 try
                 {
+                    var argList = new[]
+                    {
+            $"-s {device.Ip}",
+            $"--video-codec={videoCodec}",
+            noAudio ? "--no-audio" : "",
+            $"-b {bitrateMbps}M",
+            $"--max-fps {maxFps}",
+            $"--max-size {maxSize}",
+            useDisplayId ? $"--display-id={displayId}" : "",
+            "--video-buffer=100",
+            $"--window-title \"{windowTitle}\"",
+            $"--window-width={windowWidth}",
+            $"--window-height={windowHeight}",
+            //$"--crop {quest3LeftEyeCrop}"
+        }.Where(s => !string.IsNullOrWhiteSpace(s));
+
+                    string arguments = string.Join(" ", argList);
+
                     var psi = new ProcessStartInfo
                     {
                         FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe"),
@@ -574,10 +577,8 @@ namespace MultiQuest_Management
                     newProc = Process.Start(psi);
                     newProc.EnableRaisingEvents = true;
 
-                    // 프로세스가 메시지 루프 초기화하도록 잠깐 대기 (가능한 경우)
                     try { newProc.WaitForInputIdle(1000); } catch { }
 
-                    // 창 핸들을 빠르게 폴링하여 준비되는 즉시 반환
                     bool hasWindow = false;
                     var sw = Stopwatch.StartNew();
                     while (sw.ElapsedMilliseconds < maxWaitMs && !cancellationToken.IsCancellationRequested)
@@ -597,12 +598,18 @@ namespace MultiQuest_Management
 
                     if (!hasWindow || newProc.HasExited)
                     {
+                        // 실패 → 프로세스 정리
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
-                        continue; // 재시도
+
+                        // ★ 다음 시도부터는 display-id 제거하고 그냥 scrcpy 기본 동작에 맡김
+                        useDisplayId = false;
+                        newProc = null;
+                        continue;
                     }
                     else
                     {
-                        break; // 성공
+                        // 성공
+                        break;
                     }
                 }
                 catch (OperationCanceledException)
@@ -619,7 +626,10 @@ namespace MultiQuest_Management
                     {
                         try { newProc.Kill(); } catch { }
                     }
-                    // 재시도
+
+                    // 예외 난 뒤에는 다음 루프에서 display-id 끄고 재시도
+                    useDisplayId = false;
+                    newProc = null;
                 }
             }
 
@@ -630,6 +640,7 @@ namespace MultiQuest_Management
             }
 
             return newProc;
+
         }
 
         public async Task<Process> StartMirroringWithSemaphoreAsync(Device device, int width, int height, CancellationToken cancellationToken)
@@ -656,107 +667,96 @@ namespace MultiQuest_Management
 
         static string PickStableDisplayId(string adbSerial)
         {
-            string sf = RunAdb(adbSerial, "shell dumpsys SurfaceFlinger --display-id");
-            string dd = RunAdb(adbSerial, "shell dumpsys display");
-            string cd = RunAdb(adbSerial, "shell cmd display list"); // 추가: 가장 신뢰도 높음
+            // 퀘스트라고 가정하고, 가장 단순하고 안전하게 간다.
+            string cd = RunAdb(adbSerial, "shell cmd display list");
+            if (string.IsNullOrWhiteSpace(cd))
+                return "0"; // 정보 못 얻으면 그냥 0
 
-            var patterns = new[]
+            // "Display N" 단위로 블록 나누기
+            var blocks = Regex.Split(cd, @"(?=Display\s+\d+)")
+                              .Where(b => !string.IsNullOrWhiteSpace(b))
+                              .ToList();
+
+            int bestId = 0;
+            int bestScore = int.MinValue;
+
+            foreach (var block in blocks)
             {
-        new Regex(@"Display\s+([0-9xa-fA-F]+)"),
-        new Regex(@"mDisplayId\s*=\s*([0-9xa-fA-F]+)"),
-        new Regex(@"displayId\s*=\s*([0-9xa-fA-F]+)")
-    };
+                // 1) Display 번호 (10진수) 추출
+                var mId = Regex.Match(block, @"Display\s+(\d+)");
+                if (!mId.Success) continue;
 
-            var scores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                int id;
+                if (!int.TryParse(mId.Groups[1].Value, out id))
+                    continue;
 
-            void Bump(string id, int delta)
-            {
-                if (string.IsNullOrWhiteSpace(id)) return;
-                if (!scores.ContainsKey(id)) scores[id] = 0;
-                scores[id] += delta;
-            }
+                string lower = block.ToLowerInvariant();
+                int score = 0;
 
-            void Collect(string text)
-            {
-                if (string.IsNullOrWhiteSpace(text)) return;
-                var lines = text.Split('\n');
+                // 2) 상태
+                if (lower.Contains("state=on"))
+                    score += 50;
+                if (lower.Contains("state=off") || lower.Contains("doze"))
+                    score -= 100;
 
-                foreach (var line in lines)
+                // 3) 기본 / 메인 힌트
+                if (lower.Contains("flag_default_display"))
+                    score += 20;
+                if (lower.Contains("primary") || lower.Contains("built-in") || lower.Contains("internal"))
+                    score += 10;
+
+                // 4) 해상도(너무 작은 dummy display는 버리기)
+                var mRes = Regex.Match(lower, @"real\s+(\d+)\s*x\s*(\d+)");
+                if (mRes.Success &&
+                    int.TryParse(mRes.Groups[1].Value, out int w) &&
+                    int.TryParse(mRes.Groups[2].Value, out int h))
                 {
-                    foreach (var rx in patterns)
+                    if (w < 50 || h < 50)
                     {
-                        var m = rx.Match(line);
-                        if (!m.Success) continue;
-
-                        string id = m.Groups[1].Value.Trim();
-                        Bump(id, 0);
-
-                        string lower = line.ToLowerInvariant();
-
-                        // 강한 가산: 기본/물리
-                        if (lower.Contains("flag_default_display")) Bump(id, +50);
-                        if (lower.Contains("mdefaultdisplay=true")) Bump(id, +40);
-                        if (lower.Contains("type=physical")) Bump(id, +20);
-
-                        // 보조 가산: 기본/내장/주 디스플레이 언급
-                        if (lower.Contains("built-in") || lower.Contains("internal") || lower.Contains("primary") || lower.Contains("default"))
-                            Bump(id, +10);
-
-                        // 강한 감점: 가상/미러
-                        if (lower.Contains("virtual") || lower.Contains("overlay") || lower.Contains("wifi") ||
-                            lower.Contains("cast") || lower.Contains("presentation"))
-                            Bump(id, -40);
-
-                        // (중요) 전원 관련 단서는 제거하거나 아주 약하게만 반영
-                        // if (lower.Contains("on") || lower.Contains("present")) Bump(id, +1);
+                        // 1x1, 16x16 같은 건 거의 overlay/dummy
+                        score -= 200;
                     }
+                    else
+                    {
+                        // 넓을수록 살짝 가산
+                        int area = w * h;
+                        score += Math.Min(100, area / 2000);
+                    }
+                }
+
+                // 5) 최고 점수 갱신
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestId = id;
                 }
             }
 
-            // 우선순위: cmd display → dumpsys display → SF
-            Collect(cd);
-            Collect(dd);
-            Collect(sf);
-
-            if (scores.Count == 0) return "0";
-
-            // 동일 점수면: (1) 물리 표식 있는 쪽, (2) 키 길이 짧은 쪽(대개 10진), (3) 사전순
-            return scores
-                .OrderByDescending(kv => kv.Value)
-                .ThenByDescending(kv =>
-                {
-                    // type=PHYSICAL 언급이 같은 블록에 있었는지 대략 유추(가산을 이미 줬지만 타이브레이커에 한 번 더 반영)
-                    // 점수로도 반영됐으니 0/1로만 보조 타이브레이커
-                    // 이건 간단히: 점수에 type=PHYSICAL(+20)가 들어있었다면 true로 취급
-                    // 구현 간소화를 위해 값이 20 이상 가산됐는지 체크하는 대신, 길이 보조만 둬도 충분함
-                    return 0;
-                })
-                .ThenBy(kv => kv.Key.Length)
-                .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-                .First().Key;
+            return bestId.ToString();
         }
 
 
+
         static string RunAdb(string serial, string args)
-    {
-        var psi = new ProcessStartInfo
         {
-            FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe"),
-            Arguments = $"-s {serial} {args}",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        using var p = Process.Start(psi);
-        string output = p.StandardOutput.ReadToEnd();
-        p.WaitForExit(2000);
-        return output;
-    }
+            var psi = new ProcessStartInfo
+            {
+                FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe"),
+                Arguments = $"-s {serial} {args}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            string output = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(2000);
+            return output;
+        }
 
 
 
-    public void StartApp(Device device, int index, Action onCompleted = null)
+        public void StartApp(Device device, int index, Action onCompleted = null)
         {
             if (device == null || device.Status != "Connected") { ShowMsg("기기를 확인하세요."); return; }
 
