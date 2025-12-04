@@ -43,8 +43,8 @@ namespace MultiQuest_Management
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
-        // 동시 실행 scrcpy 제한 (예: 4)
-        private static readonly int ScrcpyMaxConcurrency = 4;
+        // 동시 실행 scrcpy 제한
+        private static readonly int ScrcpyMaxConcurrency = 3;
         private static readonly SemaphoreSlim _scrcpySemaphore = new(ScrcpyMaxConcurrency, ScrcpyMaxConcurrency);
 
         // 자동 재연결 상태 관리
@@ -527,11 +527,12 @@ namespace MultiQuest_Management
             string videoCodec = "h264";
             bool noAudio = true;
             int bitrateMbps = 1;
-            int maxFps = 8;
+            int maxFps = 15;
             string displayId = PickStableDisplayId(device.Ip);
             string windowTitle = device.Name;
             int windowWidth = width, windowHeight = height;
-            int maxSize = 480;
+            int maxSize = 360;
+            int buffer = 80;
             const string quest3LeftEyeCrop = "2064:2208:0:0";
             // ★ 첫 시도에서는 display-id 사용, 실패하면 끄고 재시도
             bool useDisplayId = !string.IsNullOrWhiteSpace(displayId);
@@ -555,8 +556,8 @@ namespace MultiQuest_Management
             $"-b {bitrateMbps}M",
             $"--max-fps {maxFps}",
             $"--max-size {maxSize}",
-            useDisplayId ? $"--display-id={displayId}" : "",
-            "--video-buffer=100",
+            //useDisplayId ? $"--display-id={displayId}" : "",
+            $"--video-buffer={buffer}",
             $"--window-title \"{windowTitle}\"",
             $"--window-width={windowWidth}",
             $"--window-height={windowHeight}",
