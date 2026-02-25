@@ -290,3 +290,6 @@ F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQue
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\KoreaHistory.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\WorldMap.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Musium.png

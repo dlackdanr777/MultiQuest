@@ -13,9 +13,12 @@
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/btn_g01blue.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/englishtown.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/firesafety.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/koreahistory.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/musium.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/no_wifi.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/oceanadventure.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/solarsystem.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/wifi.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/worldmap.png")]
 
 

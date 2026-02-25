@@ -16,9 +16,13 @@
     <None Remove="Images\Btn_G01Blue.png" />
     <None Remove="Images\EnglishTown.png" />
     <None Remove="Images\FireSafety.png" />
+    <None Remove="Images\KoreaHistory.png" />
+    <None Remove="Images\Musium.png" />
     <None Remove="Images\OceanAdventure.png" />
     <None Remove="Images\SolarSystem.png" />
     <None Remove="Images\Wifi.png" />
+    <None Remove="Images\WorldMap.png" />
+    <None Remove="KoreaHistory.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,6 +37,12 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\FireSafety.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\KoreaHistory.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Musium.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\No_Wifi.png">
@@ -50,10 +60,17 @@
     <Content Include="Images\Wifi.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Images\WorldMap.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Zeroconf" Version="3.7.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="KoreaHistory.png" />
   </ItemGroup>
 
 </Project>

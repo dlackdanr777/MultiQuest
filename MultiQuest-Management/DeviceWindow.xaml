@@ -248,8 +248,9 @@
                 <!-- 아이콘 카드 -->
                 <Border Grid.Row="1" Style="{StaticResource IconCard}" Margin="0,8,0,0"
                         HorizontalAlignment="Right" VerticalAlignment="Top">
-                    <Grid x:Name="IconButtonGrid" Width="160" Height="400">
+                    <Grid x:Name="IconButtonGrid" Width="160" Height="480">
                         <Grid.RowDefinitions>
+                            <RowDefinition/>
                             <RowDefinition/>
                             <RowDefinition/>
                             <RowDefinition/>
@@ -274,11 +275,11 @@
                             <Image Source="Images/EnglishTown.png" Stretch="UniformToFill"/>
                         </Button>
 
-                        <Button Grid.Row="2" Grid.Column="0" Margin="4" Click="StartAppBtn_Click" Tag="4" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                            <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Korean</Run><LineBreak/><Run>History</Run></TextBlock>
+                        <Button Grid.Row="2" Grid.Column="0" Margin="4" Click="StartAppBtn_Click" Tag="4" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                            <Image Source="/KoreaHistory.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="2" Grid.Column="1" Margin="4" Click="StartAppBtn_Click" Tag="5" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                            <TextBlock Text="Museum" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
+                        <Button Grid.Row="2" Grid.Column="1" Margin="4" Click="StartAppBtn_Click" Tag="10" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                            <Image Source="/Images/Musium.png" Stretch="UniformToFill"/>
                         </Button>
                         <Button Grid.Row="3" Grid.Column="0" Margin="4" Click="StartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
                             <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Brain</Run><LineBreak/><Run>Training</Run></TextBlock>

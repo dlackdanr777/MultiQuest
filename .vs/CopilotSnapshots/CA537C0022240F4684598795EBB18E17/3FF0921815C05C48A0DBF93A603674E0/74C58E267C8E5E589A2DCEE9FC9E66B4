@@ -1,0 +1,881 @@
+﻿using System;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Forms.Integration;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using System.Windows.Media.Imaging;
+
+using Application = System.Windows.Application;
+using Button = System.Windows.Controls.Button;
+using Image = System.Windows.Controls.Image;
+using Label = System.Windows.Controls.Label;
+using MessageBox = System.Windows.MessageBox;
+using Stretch = System.Windows.Media.Stretch;
+
+namespace MultiQuest_Management
+{
+    public partial class MultiMirrorWindow : Window
+    {
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+        [DllImport("user32.dll")]
+        public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int GWL_STYLE = -16;
+        private const int WS_SYSMENU = 0x00080000;
+        private const int WS_MAXIMIZEBOX = 0x00010000;
+        private const int WS_MINIMIZEBOX = 0x00020000;
+        private const int WS_CAPTION = 0x00C00000;
+        private const int WS_THICKFRAME = 0x00040000;
+        private const int SW_HIDE = 0; // 창 숨기기
+        private const int SW_SHOW = 5; // 창 표시
+
+        private const int MaxRows = 4;
+        private const int MaxColumns = 4;
+        private MainWindow _mainWindow;
+        private readonly Border[,] _cachedOuterBorders = new Border[MaxRows, MaxColumns];
+        private readonly Dictionary<string, Process> _mirroringProcesses = new();
+        private CancellationTokenSource _cancellationTokenSource = new();
+        private readonly Border[,] _cachedBorders = new Border[MaxRows, MaxColumns];
+        private readonly Label[,] _cachedLabels = new Label[MaxRows, MaxColumns];
+        private readonly Label[,] _cachedBatteryLabels = new Label[MaxRows, MaxColumns];
+        private readonly Image[,] _cachedWifiImages = new Image[MaxRows, MaxColumns];
+        private readonly Dictionary<Device, (int row, int column)> _devicePositionMap = new();
+        private readonly BitmapImage _wifiImage = new BitmapImage(new Uri("pack://application:,,,/Images/Wifi.png"));
+        private readonly BitmapImage _noWifiImage = new BitmapImage(new Uri("pack://application:,,,/Images/No_Wifi.png"));
+
+
+        private DispatcherTimer _batteryCheckTimer;
+        private DispatcherTimer _wifiCheckTimer;
+
+
+        private bool _isRefreshing = false; // 미러링 재시작 작업 중인지 확인하는 플래그
+
+        public MultiMirrorWindow(MainWindow mainWindow)
+        {
+            InitializeComponent();
+            _mainWindow = mainWindow;
+
+            this.Closed += OnWindowClosed;
+            this.SizeChanged += OnWindowSizeChanged;
+
+            _mainWindow.AddDeviceEvent += OnAddDeviceEvent;
+            this.Loaded += (s, e) =>
+            {
+                CacheBorders(); // 보더 캐싱
+                UpdateBordersVisibility();
+                UpdateDeviceLabels();
+                UpdateBatteryStatus();
+                UpdateWifi();
+            };
+
+            _batteryCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+            _batteryCheckTimer.Tick += BatteryCheckTimer_Tick;
+            _batteryCheckTimer.Start();
+
+            _wifiCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _wifiCheckTimer.Tick += WifiCheckTimer_Tick;
+            _wifiCheckTimer.Start();
+        }
+
+        private void CacheBorders()
+        {
+            for (int row = 0; row < MaxRows; row++)
+            {
+                for (int column = 0; column < MaxColumns; column++)
+                {
+                    var outerBorder = MirrorGrid.Children
+                        .OfType<Border>()
+                        .FirstOrDefault(b => Grid.GetRow(b) == row && Grid.GetColumn(b) == column);
+
+                    if (outerBorder != null)
+                    {
+                        _cachedOuterBorders[row, column] = outerBorder;
+                        var mirrorBorder = FindChildBorderByName(outerBorder, "Mirror_Border");
+                        var nameLabel = FindChildLabelByName(outerBorder, $"Name_Label_{row}_{column}");
+                        var batteryLabel = FindChildLabelByName(outerBorder, $"BatteryState");
+                        var wifiImage = FindChildImageByName(outerBorder, "Wifi_Image");
+
+                        if (mirrorBorder != null)
+                        {
+                            _cachedBorders[row, column] = mirrorBorder;
+                        }
+
+                        if (nameLabel != null)
+                        {
+                            _cachedLabels[row, column] = nameLabel;
+                        }
+
+                        if (batteryLabel != null)
+                        {
+                            _cachedBatteryLabels[row, column] = batteryLabel;
+                        }
+
+                        if (wifiImage != null)
+                        {
+                            _cachedWifiImages[row, column] = wifiImage;
+                            // 초기 Wi-Fi 이미지 설정
+                            wifiImage.Source = _noWifiImage;
+                        }
+
+                        // 디바이스와 위치 매핑
+                        if (row * MaxColumns + column < _mainWindow.Devices.Count)
+                        {
+                            var device = _mainWindow.Devices[row * MaxColumns + column];
+                            _devicePositionMap[device] = (row, column);
+                        }
+                    }
+                }
+            }
+        }
+
+        private async void RefreshMirroring(int row, int column)
+        {
+            if (_cancellationTokenSource.Token.IsCancellationRequested)
+                return;
+
+            if (_isRefreshing)
+                return;
+
+            _isRefreshing = true;
+            var deviceIndex = row * MaxColumns + column;
+            if (deviceIndex >= _mainWindow.Devices.Count)
+            {
+                ShowMsg("해당 셀에 연결된 디바이스가 없습니다.");
+                _isRefreshing = false;
+                return;
+            }
+
+            var device = _mainWindow.Devices[deviceIndex];
+
+            if (device.Status != "Connected")
+            {
+                ShowMsg($"{device.Name} 기기가 연결되어 있지 않습니다.");
+                _isRefreshing = false;
+                return;
+            }
+
+            if (_mirroringProcesses.TryGetValue(device.Ip, out var process) && !process.HasExited)
+            {
+                try
+                {
+                    process.Kill();
+                    _mirroringProcesses.Remove(device.Ip);
+                }
+                catch
+                {
+                    ShowMsg($"{device.Name} 미러링 프로세스 종료 실패.");
+                    _isRefreshing = false;
+                    return;
+                }
+            }
+
+            if (_cachedBorders[row, column] != null)
+            {
+                var newProcess = await _mainWindow.StartMirroringAsync(device, (int)_cachedBorders[row, column].ActualWidth, (int)_cachedBorders[row, column].ActualHeight, _cancellationTokenSource.Token);
+
+                if (newProcess != null && !newProcess.HasExited)
+                {
+                    // ScrcpyProcesses에 새 프로세스 등록
+                    AddProcess(newProcess, device);
+
+                    // 새로 생성된 미러링 창을 크기 변경 이벤트와 연결
+                    AdjustMirroringWindow(newProcess, _cachedBorders[row, column]);
+                    _isRefreshing = false;
+                }
+                else
+                {
+                    ShowMsg($"{device.Name} 미러링 프로세스 시작 실패.");
+                    _isRefreshing = false;
+                }
+            }
+            else
+            {
+                 ShowMsg("해당 셀에 미러링 보더가 없습니다.");
+                _isRefreshing = false;
+            }
+        }
+
+        private async void OnAddDeviceEvent(Device device)
+        {
+            if (_cancellationTokenSource.Token.IsCancellationRequested)
+                return;
+
+            if (device == null)
+            {
+                ShowMsg("Device가 null입니다.");
+                return;
+            }
+
+            // 디바이스가 연결되어 있는지 확인
+            if (device.Status != "Connected")
+            {
+                ShowMsg($"{device.Name} 기기가 연결되어 있지 않습니다.");
+                return;
+            }
+
+            // 이미 미러링이 실행 중인지 확인
+            if (_mirroringProcesses.ContainsKey(device.Ip) && !_mirroringProcesses[device.Ip].HasExited)
+            {
+                ShowMsg($"{device.Name} 미러링 창이 이미 실행 중입니다.");
+                return;
+            }
+
+            // 미러링 시작
+            await StartMirroringDevicesAsync(new ObservableCollection<Device> { device });
+        }
+
+        public async Task StartMirroringDevicesAsync(ObservableCollection<Device> devices)
+        {
+            UpdateBordersVisibility();
+            var mirroringTasks = new List<Task<(Process process, Border mirrorBorder, Device device)>>();
+
+            foreach (var device in devices)
+            {
+                if (_cancellationTokenSource.Token.IsCancellationRequested)
+                    return;
+
+                if (device.Status != "Connected")
+                    continue;
+
+                // 중복 확인: 이미 활성화된 미러링 창이 있는 경우 스킵
+                if (_mirroringProcesses.ContainsKey(device.Ip) && !_mirroringProcesses[device.Ip].HasExited)
+                {
+                    ShowMsg($"{device.Name} 미러링 창이 이미 활성화되어 있습니다.");
+                    continue;
+                }
+
+                // MainWindow가 이미 미러링 프로세스를 가지고 있으면 그것을 재사용(중복 생성 방지)
+                try
+                {
+                    if (_mainWindow != null && _mainWindow.TryGetScrcpyProcess(device.Ip, out var existingProc) && existingProc != null && !existingProc.HasExited)
+                    {
+                        var deviceIndex = _mainWindow.Devices.IndexOf(device);
+                        int row = deviceIndex / MaxColumns;
+                        int column = deviceIndex % MaxColumns;
+                        var mirrorBorder = _cachedBorders[row, column];
+                        if (mirrorBorder != null)
+                        {
+                            // 재사용: 위치/부모 재설정
+                            AdjustMirroringWindow(existingProc, mirrorBorder);
+                            AddProcess(existingProc, device);
+                            continue; // 다음 device
+                        }
+                    }
+                }
+                catch { }
+
+                var deviceIndex = _mainWindow.Devices.IndexOf(device);
+                int row = deviceIndex / MaxColumns;
+                int column = deviceIndex % MaxColumns;
+
+                var mirrorBorder = _cachedBorders[row, column];
+                if (mirrorBorder != null)
+                {
+                    mirroringTasks.Add(Task.Run(async () =>
+                    {
+                        var process = await _mainWindow.StartMirroringAsync(device, (int)mirrorBorder.ActualWidth, (int)mirrorBorder.ActualHeight, _cancellationTokenSource.Token);
+                        return (process, mirrorBorder, device);
+                    }, _cancellationTokenSource.Token));
+                }
+            }
+
+            try
+            {
+                var results = await Task.WhenAll(mirroringTasks);
+                foreach (var (process, mirrorBorder, device) in results)
+                {
+                    if (process != null)
+                    {
+                        AdjustMirroringWindow(process, mirrorBorder);
+                        AddProcess(process, device);
+                    }
+                    else if (process == null || process.HasExited)
+                    {
+                        ShowMsg($"{device.Name}의 미러링 프로세스가 시작되지 않았습니다.");
+                        continue;
+                    }
+                }
+
+                UpdateDeviceLabels();
+                UpdateBatteryStatus();
+                UpdateWifi();
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine("미러링 작업이 취소되었습니다.");
+            }
+        }
+
+
+        private void AdjustMirroringWindow(Process process, Border mirrorBorder)
+        {
+            if (process == null || mirrorBorder == null)
+                return;
+
+            IntPtr scrcpyHandle = process.MainWindowHandle;
+
+            // UI 스레드에서 Mirror_Border의 위치를 계산
+            var borderPosition = Dispatcher.Invoke(() =>
+            {
+                return mirrorBorder.TransformToAncestor(this).Transform(new System.Windows.Point(0, 0));
+            });
+
+            int borderX = (int)borderPosition.X;
+            int borderY = (int)borderPosition.Y;
+            int borderWidth = (int)mirrorBorder.ActualWidth;
+            int borderHeight = (int)mirrorBorder.ActualHeight;
+
+            // DPI 스케일링 적용
+            var dpiScale = VisualTreeHelper.GetDpi(this);
+            borderX = (int)(borderX * dpiScale.DpiScaleX);
+            borderY = (int)(borderY * dpiScale.DpiScaleY);
+            borderWidth = (int)(borderWidth * dpiScale.DpiScaleX);
+            borderHeight = (int)(borderHeight * dpiScale.DpiScaleY);
+
+            // 창 스타일 제거
+            int style = GetWindowLong(scrcpyHandle, GWL_STYLE);
+            style &= ~WS_CAPTION;
+            style &= ~WS_THICKFRAME;
+            SetWindowLong(scrcpyHandle, GWL_STYLE, style);
+
+            // 창 위치와 크기 설정
+            bool moveResult = MoveWindow(scrcpyHandle, borderX, borderY, borderWidth, borderHeight, true);
+            Debug.WriteLine($"MoveWindow 호출 결과: {moveResult}");
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                SetParent(scrcpyHandle, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            }));
+
+            // 창을 다시 표시
+            ShowWindow(scrcpyHandle, SW_SHOW);
+        }
+
+        private void AdjustMirroringWindowWithPosition(Process process, Border mirrorBorder)
+        {
+            if (process == null || mirrorBorder == null)
+                return;
+
+            IntPtr scrcpyHandle = process.MainWindowHandle;
+
+            // UI 스레드에서 Mirror_Border의 위치와 크기를 계산
+            var borderPositionAndSize = Dispatcher.Invoke(() =>
+            {
+                var position = mirrorBorder.TransformToAncestor(this).Transform(new System.Windows.Point(0, 0));
+                return new
+                {
+                    X = (int)position.X,
+                    Y = (int)position.Y,
+                    Width = (int)mirrorBorder.ActualWidth,
+                    Height = (int)mirrorBorder.ActualHeight
+                };
+            });
+
+            // DPI 스케일링 적용
+            var dpiScale = VisualTreeHelper.GetDpi(this);
+            int borderX = (int)(borderPositionAndSize.X * dpiScale.DpiScaleX);
+            int borderY = (int)(borderPositionAndSize.Y * dpiScale.DpiScaleY);
+            int borderWidth = (int)(borderPositionAndSize.Width * dpiScale.DpiScaleX);
+            int borderHeight = (int)(borderPositionAndSize.Height * dpiScale.DpiScaleY);
+
+            // 창 위치와 크기 설정
+            bool moveResult = MoveWindow(scrcpyHandle, borderX, borderY, borderWidth, borderHeight, true);
+            Debug.WriteLine($"MoveWindow 호출 결과: {moveResult}");
+        }
+
+        private void OnWindowClosed(object sender, EventArgs e)
+        {
+            _cancellationTokenSource.Cancel();
+            _mainWindow.SetMultiMirrorWindow(null);
+            // 모든 미러링 프로세스 종료
+            foreach (var process in _mirroringProcesses.Values)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill();
+                }
+                catch
+                {
+                    // 프로세스 종료 실패 시 무시
+                }
+            }
+
+            _mirroringProcesses.Clear();
+
+            // 이벤트 해제
+            if (_mainWindow != null)
+            {
+                _mainWindow.AddDeviceEvent -= OnAddDeviceEvent;
+            }
+
+            if (_batteryCheckTimer != null)
+            {
+                _batteryCheckTimer.Tick -= BatteryCheckTimer_Tick;
+                _batteryCheckTimer.Stop();
+                _batteryCheckTimer = null;
+            }
+
+            if (_wifiCheckTimer != null)
+            {
+                _wifiCheckTimer.Tick -= WifiCheckTimer_Tick;
+                _wifiCheckTimer.Stop();
+                _wifiCheckTimer = null;
+            }
+        }
+
+        private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (e.PreviousSize != e.NewSize) // 크기 변경이 실제로 발생했을 때만 처리
+            {
+                foreach (var processEntry in _mirroringProcesses)
+                {
+                    string deviceIp = processEntry.Key;
+                    Process process = processEntry.Value;
+
+                    var device = _mainWindow.Devices.FirstOrDefault(d => d.Ip == deviceIp);
+                    if (device == null || device.Status != "Connected")
+                    {
+                        Debug.WriteLine($"OnWindowSizeChanged 처리 실패: {deviceIp} - 디바이스가 연결되지 않았거나 찾을 수 없습니다.");
+                        continue;
+                    }
+
+                    var deviceIndex = _mainWindow.Devices.IndexOf(device);
+                    int row = deviceIndex / MaxColumns;
+                    int column = deviceIndex % MaxColumns;
+
+                    var mirrorBorder = _cachedBorders[row, column];
+                    if (mirrorBorder != null && !process.HasExited)
+                    {
+                        Debug.WriteLine($"OnWindowSizeChanged 처리 중: {deviceIp}");
+
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            AdjustMirroringWindowWithPosition(process, mirrorBorder);
+                        }));
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"OnWindowSizeChanged 처리 실패: {deviceIp}");
+                    }
+                }
+            }
+        }
+
+        private void ShowMsg(string msg)
+            => MessageBox.Show(msg);
+
+        private async void RefreshAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                ShowMsg("이미 리프레시 작업이 진행 중입니다.");
+                return;
+            }
+
+            try
+            {
+                // 기존 작업 취소
+                _cancellationTokenSource.Cancel();
+                _cancellationTokenSource = new CancellationTokenSource();
+
+                // 모든 디바이스 리프레시
+                foreach (var device in _mainWindow.Devices)
+                {
+                    if (device.Status == "Connected" && _devicePositionMap.TryGetValue(device, out var position))
+                    {
+                        // 기존 미러링 창 종료
+                        if (_mirroringProcesses.TryGetValue(device.Ip, out var process) && !process.HasExited)
+                        {
+                            try
+                            {
+                                process.Kill();
+                                _mirroringProcesses.Remove(device.Ip);
+                            }
+                            catch
+                            {
+                                ShowMsg($"{device.Name} 미러링 프로세스 종료 실패.");
+                                continue;
+                            }
+                        }
+
+                        // 새로운 미러링 창 시작
+                        await Task.Run(() => RefreshMirroring(position.row, position.column), _cancellationTokenSource.Token);
+
+                        // 미러링 창 업데이트
+                        var mirrorBorder = _cachedBorders[position.row, position.column];
+                        if (mirrorBorder != null &&
+                            _mirroringProcesses.TryGetValue(device.Ip, out process) &&
+                            process != null && !process.HasExited)
+                        {
+                            AdjustMirroringWindow(process, mirrorBorder);
+                        }
+
+                    }
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Debug.WriteLine("리프레시 작업이 취소되었습니다.");
+            }
+            finally
+            {
+                UpdateDeviceLabels();
+            }
+        }
+
+        private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                ShowMsg("이미 리프레시 작업이 진행 중입니다.");
+                return;
+            }
+
+            if (sender is Button button && button.Tag is string tag)
+            {
+                var parts = tag.Split(',');
+                if (parts.Length == 2 && int.TryParse(parts[0], out int row) && int.TryParse(parts[1], out int column))
+                {
+                    try
+                    {
+                        // 기존 작업 취소
+                        _cancellationTokenSource.Cancel();
+                        _cancellationTokenSource = new CancellationTokenSource();
+
+                        // 새로운 작업 시작
+                        await Task.Run(() => RefreshMirroring(row, column), _cancellationTokenSource.Token);
+
+                        // 미러링 창 업데이트
+                        var mirrorBorder = _cachedBorders[row, column];
+                        if (mirrorBorder != null &&
+                            _mirroringProcesses.TryGetValue(_mainWindow.Devices[row * MaxColumns + column].Ip, out var process) &&
+                            process != null && !process.HasExited)
+                        {
+                            AdjustMirroringWindow(process, mirrorBorder);
+                        }
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        Debug.WriteLine("리프레시 작업이 취소되었습니다.");
+                    }
+                    finally
+                    {
+                        UpdateDeviceLabels();
+                    }
+                }
+                else
+                {
+                    ShowMsg("잘못된 버튼 태그입니다.");
+                }
+            }
+        }
+
+
+        private void StopAll_Click(object sender, RoutedEventArgs e)
+        {
+            // 모든 디바이스의 미러링을 중지
+            foreach (var device in _mainWindow.Devices)
+            {
+                if (_mirroringProcesses.TryGetValue(device.Ip, out var process) && !process.HasExited)
+                {
+                    try
+                    {
+                        process.Kill();
+                        _mirroringProcesses.Remove(device.Ip);
+                    }
+                    catch
+                    {
+                        ShowMsg($"{device.Name} 미러링 프로세스 종료 실패.");
+                    }
+                }
+            }
+
+        }
+
+        private Border FindChildBorderByName(DependencyObject parent, string name)
+        {
+            if (parent == null) return null;
+
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                // 이름이 일치하는 Border를 찾음
+                if (child is Border border && border.Name.Contains(name))
+                {
+                    return border;
+                }
+
+                // 재귀적으로 탐색
+                var result = FindChildBorderByName(child, name);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private Label FindChildLabelByName(DependencyObject parent, string name)
+        {
+            if (parent == null) return null;
+
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                // 이름이 일치하는 Border를 찾음
+                if (child is Label label && label.Name.Contains(name))
+                {
+                    return label;
+                }
+
+                // 재귀적으로 탐색
+                var result = FindChildLabelByName(child, name);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private Image FindChildImageByName(DependencyObject parent, string name)
+        {
+            if (parent == null) return null;
+
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                // 이름이 일치하는 Border를 찾음
+                if (child is Image image && image.Name.Contains(name))
+                {
+                    return image;
+                }
+
+                // 재귀적으로 탐색
+                var result = FindChildImageByName(child, name);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private void UpdateDeviceLabels()
+        {
+            for (int row = 0; row < MaxRows; row++)
+            {
+                for (int column = 0; column < MaxColumns; column++)
+                {
+                    Label nameLabel = _cachedLabels[row, column];
+                    int deviceIndex = row * MaxColumns + column;
+
+                    if (deviceIndex < _mainWindow.Devices.Count)
+                    {
+                        var device = _mainWindow.Devices[deviceIndex];
+                        if (device != null && device.Status == "Connected")
+                        {
+                            // 연결된 디바이스의 이름 출력
+                            if (nameLabel != null)
+                            {
+                                nameLabel.Content = device.Name;
+                            }
+                        }
+                        else
+                        {
+                            // 디바이스가 연결되지 않은 경우
+                            if (nameLabel != null)
+                            {
+                                nameLabel.Content = "Device Not Found";
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 디바이스가 없는 경우
+                        if (nameLabel != null)
+                        {
+                            nameLabel.Content = "Device Not Found";
+                        }
+                    }
+                }
+            }
+        }
+
+
+        private void AddProcess(Process process, Device device)
+        {
+            if (process == null || device == null)
+                return;
+            if (_mirroringProcesses.ContainsKey(device.Ip))
+            {
+                Debug.WriteLine($"이미 등록된 프로세스: {device.Ip}");
+                return;
+
+            }
+
+            _mirroringProcesses[device.Ip] = process;
+            process.EnableRaisingEvents = true;
+            process.Exited += (s, e) =>
+            {
+                string ip = device.Ip;
+                if (_mirroringProcesses.ContainsKey(ip))
+                {
+                    _mirroringProcesses.Remove(ip);
+                    Debug.WriteLine($"프로세스 제거됨: {ip}");
+                }
+            };
+            Debug.WriteLine($"프로세스 추가됨: {device.Ip}");
+        }
+
+        private void UpdateBordersVisibility()
+        {
+            int deviceCount = _mainWindow.Devices.Count;
+
+            for (int row = 0; row < MaxRows; row++)
+            {
+                for (int column = 0; column < MaxColumns; column++)
+                {
+                    int index = row * MaxColumns + column;
+                    Debug.WriteLine($"Cached for row {row}, column {column}");
+                    var outerBorder = _cachedOuterBorders[row, column]; // 캐싱된 outerBorder 사용
+
+                    if (outerBorder != null)
+                    {
+                        // 디바이스 숫자만큼 활성화, 나머지는 비활성화
+                        outerBorder.Visibility = index < deviceCount ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Cached outer border not found for row {row}, column {column}");
+                    }
+                }
+            }
+        }
+
+        private void BatteryCheckTimer_Tick(object sender, EventArgs e)
+        {
+            if (_cancellationTokenSource.Token.IsCancellationRequested)
+                return;
+
+            UpdateBatteryStatus();
+        }
+
+        private async void UpdateBatteryStatus()
+        {
+            if (_mainWindow.Devices == null || _mainWindow.Devices.Count == 0)
+                return;
+
+            foreach (var device in _mainWindow.Devices)
+            {
+                if (device == null || device.Status != "Connected")
+                    continue;
+
+                if (_cancellationTokenSource.Token.IsCancellationRequested)
+                    return;
+
+                // 디바이스의 위치 가져오기
+                if (_devicePositionMap.TryGetValue(device, out var position))
+                {
+                    var batteryLabel = _cachedBatteryLabels[position.row, position.column];
+                    if (batteryLabel != null)
+                    {
+                        try
+                        {
+                            if (_cancellationTokenSource.Token.IsCancellationRequested)
+                                return;
+                            // 비동기적으로 배터리 잔량 가져오기
+                            int batteryLevel = await Task.Run(() => _mainWindow.GetBatteryLevel(device.Ip));
+                            if (_cancellationTokenSource.Token.IsCancellationRequested)
+                                return;
+                            // 배터리 잔량 업데이트
+                            Dispatcher.Invoke(() =>
+                            {
+                                Debug.WriteLine($"배터리 상태 업데이트: {device.Name} - {batteryLevel}%");
+                                batteryLabel.Content = batteryLevel >= 0
+                                    ? $"{batteryLevel}%"
+                                    : "Error";
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"배터리 상태 업데이트 실패: {ex.Message}");
+                            Dispatcher.Invoke(() =>
+                            {
+                                batteryLabel.Content = "Error";
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        private void WifiCheckTimer_Tick(object sender, EventArgs e)
+        {
+            UpdateWifi();
+        }
+
+        private void UpdateWifi()
+        {
+            if (_mainWindow.Devices == null || _mainWindow.Devices.Count == 0)
+                return;
+
+            foreach (var device in _mainWindow.Devices)
+            {
+                if (_devicePositionMap.TryGetValue(device, out var position))
+                {
+                    var wifiImage = _cachedWifiImages[position.row, position.column];
+
+                    if (device == null || device.Status != "Connected")
+                    {
+                        // 디바이스가 연결되지 않았거나 Wi-Fi 이미지가 없는 경우
+                        if (wifiImage != null)
+                        {
+                            wifiImage.Source = _noWifiImage;
+                        }
+                        continue;
+                    }
+                    else if (wifiImage != null)
+                    {
+                        // Wi-Fi 상태에 따라 이미지 업데이트
+                        if (device.Status.Contains("Connected"))
+                        {
+                            wifiImage.Source = _wifiImage;
+                        }
+                        else
+                        {
+                            wifiImage.Source = _noWifiImage;
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+}
