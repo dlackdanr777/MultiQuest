@@ -185,16 +185,19 @@
                     <Button Grid.Row="2" Grid.Column="1" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="10" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
                         <Image Source="/Images/Musium.png" Stretch="UniformToFill"/>
                     </Button>
-                    <Button Grid.Row="3" Grid.Column="0" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                        <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Brain</Run><LineBreak/><Run>Training</Run></TextBlock>
+                    <Button Grid.Row="3" Grid.Column="0" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                        <Image Source="/BrainPop.png" Stretch="UniformToFill"/>
                     </Button>
-                    <Button Grid.Row="3" Grid.Column="1" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                        <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>Korean</Run><LineBreak/><Run>History2</Run></TextBlock>
+                    <Button Grid.Row="3" Grid.Column="1" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                        <Image Source="/Images/SmartFarm.png" Stretch="UniformToFill"/>
                     </Button>
-                    <Button Grid.Row="4" Grid.Column="0" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="8" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                    <Button Grid.Row="4" Grid.Column="0" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="11" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                        <Image Source="/Images/Coding.png" Stretch="UniformToFill"/>
+                    </Button>
+                    <Button Grid.Row="5" Grid.Column="0" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="8" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
                         <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>오션</Run><LineBreak/><Run>관람 버전</Run></TextBlock>
                     </Button>
-                    <Button Grid.Row="4" Grid.Column="1" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="9" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
+                    <Button Grid.Row="5" Grid.Column="1" Margin="1" Click="AllDeviceStartAppBtn_Click" Tag="9" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
                         <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>우주</Run><LineBreak/><Run>관람 버전</Run></TextBlock>
                     </Button>
 

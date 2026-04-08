@@ -1,0 +1,75 @@
+﻿<Window x:Class="MultiQuest_Management.SettingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="설정" Height="420" Width="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#0E1116">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Text" Color="#D8E2F1"/>
+        <SolidColorBrush x:Key="TextDim" Color="#9DB0C9"/>
+        <SolidColorBrush x:Key="Stroke" Color="#223047"/>
+        <SolidColorBrush x:Key="Card" Color="#141A24"/>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- 상단바 -->
+            <RowDefinition Height="*"/>
+            <!-- 그리드 -->
+            <RowDefinition Height="Auto"/>
+            <!-- 버튼 -->
+        </Grid.RowDefinitions>
+
+        <!-- 상단 바: 시리얼 목록 동기화/자동 추가 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+            <Button Content="시리얼 새로고침" Width="120" Margin="0,0,6,0" Click="RefreshSerials_Click"/>
+            <Button Content="연결된 시리얼로 행 추가" Width="160" Click="AddFromDevices_Click"/>
+        </StackPanel>
+
+        <!-- 설정 표 -->
+        <DataGrid x:Name="GridSettings" Grid.Row="1"
+                  ItemsSource="{Binding Items}"
+                  SelectedItem="{Binding Selected, Mode=TwoWay}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="True"
+                  CanUserDeleteRows="True"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  BorderBrush="{StaticResource Stroke}"
+                  Background="{StaticResource Card}"
+                  Foreground="{DynamicResource Card}"
+                  Margin="0,0,0,8" FontSize="13">
+            <DataGrid.Columns>
+                <!-- 시리얼 넘버: 편집 시 콤보박스 -->
+                <DataGridTemplateColumn Header="시리얼 넘버" Width="2*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Key}" Foreground="{DynamicResource Card}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                    <DataGridTemplateColumn.CellEditingTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding DataContext.AvailableSerials, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      IsEditable="True"
+                                      SelectedItem="{Binding Key, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellEditingTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- 지정 번호 -->
+                <DataGridTextColumn Header="지정 번호"
+                                    Binding="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="2*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- 하단 버튼 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="추가"  Width="80" Margin="0,0,6,0" Click="Add_Click"/>
+            <Button Content="삭제"  Width="80" Margin="0,0,6,0" Click="Remove_Click"/>
+            <Button Content="저장"  Width="90" Margin="0,0,6,0" Click="Save_Click"/>
+            <Button Content="닫기"  Width="90" Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

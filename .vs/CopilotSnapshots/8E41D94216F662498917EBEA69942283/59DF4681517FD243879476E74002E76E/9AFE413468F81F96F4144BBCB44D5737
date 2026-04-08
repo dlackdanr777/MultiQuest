@@ -1,0 +1,222 @@
+﻿using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
+
+using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using Window = System.Windows.Window;
+
+namespace MultiQuest_Management
+{
+    public partial class DeviceWindow : Window, INotifyPropertyChanged
+    {
+        private readonly MainWindow _mainWindow;
+
+        private Device _currentDevice;
+        public Device CurrentDevice
+        {
+            get => _currentDevice;
+            private set { _currentDevice = value; OnPropertyChanged(nameof(CurrentDevice)); }
+        }
+
+        private Process _scrcpy;
+        private CancellationTokenSource _cts;
+        private bool _isRefreshing = false;
+
+        // Adjust 과호출 방지를 위한 디바운스 타이머
+        private readonly DispatcherTimer _adjustDebounce;
+
+        // ✅ 권장: 디바이스를 함께 받는 생성자
+        public DeviceWindow(MainWindow mainWindow, Device device)
+        {
+            InitializeComponent();
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            CurrentDevice = device ?? throw new ArgumentNullException(nameof(device));
+            DataContext = this;
+
+            Loaded += Window_Loaded;
+            Closed += Window_Closed;
+            SizeChanged += Window_SizeChanged;
+            LocationChanged += Window_LocationChanged;
+
+            // 호스트(Border) 변화 추적
+            PART_MirrorHost.SizeChanged += Host_SizeChanged;
+            PART_MirrorHost.LayoutUpdated += Host_LayoutUpdated;
+
+            // 디바이스 상태 변화에 반응
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+
+            _adjustDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+            _adjustDebounce.Tick += (_, __) =>
+            {
+                _adjustDebounce.Stop();
+                if (_scrcpy != null && !_scrcpy.HasExited)
+                    ScrcpyEmbedder.Adjust(_scrcpy, PART_MirrorHost, this);
+            };
+        }
+
+        // ❗기존 생성자를 쓰고 싶다면 이 메서드로 디바이스를 주입하세요.
+        public void SetDevice(Device device)
+        {
+            CurrentDevice = device ?? throw new ArgumentNullException(nameof(device));
+            DataContext = this;
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+        }
+
+        // ===== 생명주기 =====
+        private async void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            // 연결 보장(필요 시)
+            if (!CurrentDevice.IsConnected)
+            {
+                var outp = _mainWindow.RunCmd($"adb connect {CurrentDevice.Ip}", 4000);
+                if (outp.Contains("connected", StringComparison.OrdinalIgnoreCase))
+                    CurrentDevice.Status = "Connected";
+            }
+
+            if (CurrentDevice.IsConnected)
+                await StartMirrorAsync();
+        }
+
+        private void Window_Closed(object? sender, EventArgs e)
+        {
+            try { CurrentDevice.PropertyChanged -= CurrentDevice_PropertyChanged; } catch { }
+            try
+            {
+                PART_MirrorHost.SizeChanged -= Host_SizeChanged;
+                PART_MirrorHost.LayoutUpdated -= Host_LayoutUpdated;
+            }
+            catch { }
+
+            _cts?.Cancel();
+            StopMirror();
+        }
+
+        // ===== 레이아웃/지오메트리 이벤트 (자동 위치/크기 보정) =====
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e) => ScheduleAdjust();
+        private void Window_LocationChanged(object? sender, EventArgs e) => ScheduleAdjust();
+        private void Host_SizeChanged(object sender, SizeChangedEventArgs e) => ScheduleAdjust();
+        private void Host_LayoutUpdated(object? sender, EventArgs e) => ScheduleAdjust();
+
+        private void ScheduleAdjust()
+        {
+            if (_scrcpy == null || _scrcpy.HasExited) return;
+            _adjustDebounce.Stop();
+            _adjustDebounce.Start();
+        }
+
+        // ===== 디바이스 상태 반응 =====
+        private async void CurrentDevice_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(Device.Status) || e.PropertyName == nameof(Device.IsConnected))
+            {
+                if (CurrentDevice.IsConnected) await StartMirrorAsync();
+                else StopMirror();
+            }
+        }
+
+        // ===== ★ 미러링 시작 (메인윈도우의 StartMirroringAsync 사용) =====
+        private async Task StartMirrorAsync()
+        {
+            var host = PART_MirrorHost;
+            if (host == null) return;
+
+            // 레이아웃 안정화 대기
+            if (host.ActualWidth < 2 || host.ActualHeight < 2)
+                await Dispatcher.Yield(DispatcherPriority.Loaded);
+
+            StopMirror(); // 기존 프로세스 정리
+
+            _cts?.Cancel();
+            _cts = new CancellationTokenSource();
+
+            int w = (int)Math.Max(1, host.ActualWidth * 0.9f);
+            int h = (int)Math.Max(1, host.ActualHeight * 0.9f);
+
+            // ✅ 메인윈도우의 StartMirroringAsync 그대로 사용
+            var proc = await _mainWindow.StartMirroringAsync(CurrentDevice, w, h, _cts.Token);
+            if (proc == null || proc.HasExited)
+            {
+                ShowMsg("미러링 시작 실패");
+                return;
+            }
+
+            _scrcpy = proc;
+            _scrcpy.EnableRaisingEvents = true;
+            _scrcpy.Exited += (_, __) => _scrcpy = null;
+
+            // scrcpy 윈도우를 호스트 보더에 임베드 & 사이즈/위치 적용
+            ScrcpyEmbedder.Attach(_scrcpy, host, this);
+        }
+
+        private void StopMirror()
+        {
+            if (_scrcpy == null) return;
+            try
+            {
+                if (!_scrcpy.HasExited)
+                {
+                    if (!_scrcpy.CloseMainWindow()) _scrcpy.Kill();
+                    _scrcpy.WaitForExit(800);
+                }
+            }
+            catch { }
+            finally
+            {
+                _scrcpy = null;
+            }
+        }
+
+        // ===== 버튼 핸들러 =====
+        private async void RefreshTile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing) { MessageBox.Show("이미 새로고침 중입니다."); return; }
+            _isRefreshing = true;
+
+            StopMirror(); // 기존 종료 후 재시작
+
+            var host = PART_MirrorHost;
+            if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); _isRefreshing = false; return; }
+
+            int w = (int)Math.Max(1, host.ActualWidth * 0.9f);
+            int h = (int)Math.Max(1, host.ActualHeight * 0.9f);
+
+            var proc = await _mainWindow.StartMirroringAsync(CurrentDevice, w, h, CancellationToken.None);
+            if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
+
+            _scrcpy = proc;
+            proc.EnableRaisingEvents = true;
+            proc.Exited += (s2, a2) => _scrcpy = null;
+
+            ScrcpyEmbedder.Attach(proc, host, this);
+            _isRefreshing = false;
+        }
+
+        private void StopAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            this.IsEnabled = false;
+            Debug.WriteLine("디바이스 앱 중지 요청");
+            _mainWindow.StopDeviceApp(CurrentDevice, () => this.IsEnabled = true);
+        }
+
+        private void StartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            this.IsEnabled = false;
+            var button = sender as Button;
+            _mainWindow.StartApp(CurrentDevice, int.Parse(button.Tag as string), () => this.IsEnabled = true);
+        }
+
+        // ===== 유틸/INPC =====
+        private void ShowMsg(string msg) => MessageBox.Show(msg);
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}

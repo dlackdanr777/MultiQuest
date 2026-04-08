@@ -12,13 +12,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="BrainPop.png" />
     <None Remove="Images\Battery.png" />
+    <None Remove="Images\BrainPop.png" />
     <None Remove="Images\Btn_G01Blue.png" />
+    <None Remove="Images\Coding.png" />
     <None Remove="Images\EnglishTown.png" />
     <None Remove="Images\FireSafety.png" />
     <None Remove="Images\KoreaHistory.png" />
     <None Remove="Images\Musium.png" />
     <None Remove="Images\OceanAdventure.png" />
+    <None Remove="Images\SmartFarm.png" />
     <None Remove="Images\SolarSystem.png" />
     <None Remove="Images\Wifi.png" />
     <None Remove="Images\WorldMap.png" />
@@ -30,7 +34,13 @@
     <Content Include="Images\Battery.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Images\BrainPop.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Images\Btn_G01Blue.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\EnglishTown.png">
@@ -49,6 +59,9 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\OceanAdventure.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\SmartFarm.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\SolarSystem.png">
@@ -70,6 +83,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Resource Include="BrainPop.png" />
     <Resource Include="KoreaHistory.png" />
   </ItemGroup>
 

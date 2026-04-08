@@ -1,0 +1,44 @@
+﻿using System.Collections.ObjectModel;
+using System.Windows;
+
+using MessageBox = System.Windows.MessageBox;
+
+namespace MultiQuest_Management
+{
+    public partial class SettingWindow : Window
+    {
+        private readonly SettingsService _service;
+        private readonly ObservableCollection<Device> _devices;
+        public SettingsViewModel VM { get; }
+
+        public SettingWindow(SettingsService service, ObservableCollection<Device> devices)
+        {
+            InitializeComponent();
+            _service = service;
+            _devices = devices;
+            VM = new SettingsViewModel(service, devices);
+            DataContext = VM;
+        }
+
+        private void Add_Click(object sender, RoutedEventArgs e) => VM.AddEmpty();
+        private void Remove_Click(object sender, RoutedEventArgs e) => VM.RemoveSelected();
+        private void Save_Click(object sender, RoutedEventArgs e)
+        {
+            if (!VM.ValidateNoDuplicateKeys())
+            {
+                MessageBox.Show("중복 키가 있습니다.", "검증 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            _service.ReplaceAll(VM.Items);
+            _service.Save();
+            MessageBox.Show("저장되었습니다.");
+        }
+        private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+        // “연결된 시리얼로 행 추가” 버튼
+        private void AddFromDevices_Click(object sender, RoutedEventArgs e) => VM.AddRowsForConnectedDevices();
+
+        // “시리얼 목록 새로고침” 버튼
+        private void RefreshSerials_Click(object sender, RoutedEventArgs e) => VM.RefreshSerials();
+    }
+}
