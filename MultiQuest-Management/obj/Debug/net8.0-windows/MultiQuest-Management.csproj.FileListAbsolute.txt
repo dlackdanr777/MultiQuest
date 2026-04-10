@@ -296,3 +296,17 @@ F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Musium.p
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\BrainPop.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SmartFarm.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SearchIcon.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\StopIcon.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\MultiScreen.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Jurassic.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding1.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding10.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding2.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding3.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding4.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding5.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding6.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding7.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding8.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding9.png

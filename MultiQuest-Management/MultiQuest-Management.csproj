@@ -13,19 +13,36 @@
 
   <ItemGroup>
     <None Remove="BrainPop.png" />
+    <None Remove="Images\alphatong.png" />
     <None Remove="Images\Battery.png" />
     <None Remove="Images\BrainPop.png" />
     <None Remove="Images\Btn_G01Blue.png" />
     <None Remove="Images\Coding.png" />
+    <None Remove="Images\Coding1.png" />
+    <None Remove="Images\Coding10.png" />
+    <None Remove="Images\Coding2.png" />
+    <None Remove="Images\Coding3.png" />
+    <None Remove="Images\Coding4.png" />
+    <None Remove="Images\Coding5.png" />
+    <None Remove="Images\Coding6.png" />
+    <None Remove="Images\Coding7.png" />
+    <None Remove="Images\Coding8.png" />
+    <None Remove="Images\Coding9.png" />
     <None Remove="Images\EnglishTown.png" />
     <None Remove="Images\FireSafety.png" />
+    <None Remove="Images\Jurassic.png" />
     <None Remove="Images\KoreaHistory.png" />
+    <None Remove="Images\MultiScreen.png" />
     <None Remove="Images\Musium.png" />
     <None Remove="Images\OceanAdventure.png" />
+    <None Remove="Images\SearchIcon.png" />
     <None Remove="Images\SmartFarm.png" />
     <None Remove="Images\SolarSystem.png" />
+    <None Remove="Images\StopIcon.png" />
     <None Remove="Images\Wifi.png" />
     <None Remove="Images\WorldMap.png" />
+    <None Remove="Images\체험.png" />
+    <None Remove="Images\코딩.png" />
     <None Remove="KoreaHistory.png" />
   </ItemGroup>
 
@@ -43,13 +60,49 @@
     <Content Include="Images\Coding.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Images\Coding1.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding10.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding2.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding3.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding4.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding5.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding6.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding7.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding8.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\Coding9.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Images\EnglishTown.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\FireSafety.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Images\Jurassic.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Images\KoreaHistory.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\MultiScreen.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\Musium.png">
@@ -61,10 +114,16 @@
     <Content Include="Images\OceanAdventure.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Include="Images\SearchIcon.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Include="Images\SmartFarm.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Include="Images\SolarSystem.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Images\StopIcon.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -76,6 +135,11 @@
     <Content Include="Images\WorldMap.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Resource Include="Images\alphatong.png" />
+    <Resource Include="Images\Jurassic.png" />
+    <Resource Include="Images\MultiScreen.png" />
+    <Resource Include="Images\체험.png" />
+    <Resource Include="Images\코딩.png" />
   </ItemGroup>
 
   <ItemGroup>

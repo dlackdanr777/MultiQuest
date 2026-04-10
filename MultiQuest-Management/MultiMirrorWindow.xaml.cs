@@ -11,7 +11,6 @@ using System.Windows.Forms.Integration;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Windows.Media.Imaging;
 
 using Application = System.Windows.Application;
 using Button = System.Windows.Controls.Button;
@@ -312,75 +311,34 @@ namespace MultiQuest_Management
                 return;
 
             IntPtr scrcpyHandle = process.MainWindowHandle;
+            if (scrcpyHandle == IntPtr.Zero) return;
 
-            // UI 스레드에서 Mirror_Border의 위치를 계산
-            var borderPosition = Dispatcher.Invoke(() =>
-            {
-                return mirrorBorder.TransformToAncestor(this).Transform(new System.Windows.Point(0, 0));
-            });
+            var ownerHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-            int borderX = (int)borderPosition.X;
-            int borderY = (int)borderPosition.Y;
-            int borderWidth = (int)mirrorBorder.ActualWidth;
-            int borderHeight = (int)mirrorBorder.ActualHeight;
+            // SetParent를 MoveWindow 전에 먼저 호출해야 부모 기준 좌표로 정확하게 배치됨
+            SetParent(scrcpyHandle, ownerHwnd);
 
-            // DPI 스케일링 적용
-            var dpiScale = VisualTreeHelper.GetDpi(this);
-            borderX = (int)(borderX * dpiScale.DpiScaleX);
-            borderY = (int)(borderY * dpiScale.DpiScaleY);
-            borderWidth = (int)(borderWidth * dpiScale.DpiScaleX);
-            borderHeight = (int)(borderHeight * dpiScale.DpiScaleY);
-
-            // 창 스타일 제거
+            // 창 스타일 제거 (타이틀바·테두리)
             int style = GetWindowLong(scrcpyHandle, GWL_STYLE);
             style &= ~WS_CAPTION;
             style &= ~WS_THICKFRAME;
             SetWindowLong(scrcpyHandle, GWL_STYLE, style);
 
-            // 창 위치와 크기 설정
-            bool moveResult = MoveWindow(scrcpyHandle, borderX, borderY, borderWidth, borderHeight, true);
-            Debug.WriteLine($"MoveWindow 호출 결과: {moveResult}");
+            // UI 스레드에서 Mirror_Border의 위치 계산
+            var borderPosition = Dispatcher.Invoke(() =>
+                mirrorBorder.TransformToAncestor(this).Transform(new System.Windows.Point(0, 0)));
 
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                SetParent(scrcpyHandle, new System.Windows.Interop.WindowInteropHelper(this).Handle);
-            }));
+            var dpiScale = VisualTreeHelper.GetDpi(this);
+            int borderX      = (int)(borderPosition.X        * dpiScale.DpiScaleX);
+            int borderY      = (int)(borderPosition.Y        * dpiScale.DpiScaleY);
+            int borderWidth  = (int)(mirrorBorder.ActualWidth  * dpiScale.DpiScaleX);
+            int borderHeight = (int)(mirrorBorder.ActualHeight * dpiScale.DpiScaleY);
 
-            // 창을 다시 표시
+            MoveWindow(scrcpyHandle, borderX, borderY, borderWidth, borderHeight, true);
             ShowWindow(scrcpyHandle, SW_SHOW);
         }
 
-        private void AdjustMirroringWindowWithPosition(Process process, Border mirrorBorder)
-        {
-            if (process == null || mirrorBorder == null)
-                return;
-
-            IntPtr scrcpyHandle = process.MainWindowHandle;
-
-            // UI 스레드에서 Mirror_Border의 위치와 크기를 계산
-            var borderPositionAndSize = Dispatcher.Invoke(() =>
-            {
-                var position = mirrorBorder.TransformToAncestor(this).Transform(new System.Windows.Point(0, 0));
-                return new
-                {
-                    X = (int)position.X,
-                    Y = (int)position.Y,
-                    Width = (int)mirrorBorder.ActualWidth,
-                    Height = (int)mirrorBorder.ActualHeight
-                };
-            });
-
-            // DPI 스케일링 적용
-            var dpiScale = VisualTreeHelper.GetDpi(this);
-            int borderX = (int)(borderPositionAndSize.X * dpiScale.DpiScaleX);
-            int borderY = (int)(borderPositionAndSize.Y * dpiScale.DpiScaleY);
-            int borderWidth = (int)(borderPositionAndSize.Width * dpiScale.DpiScaleX);
-            int borderHeight = (int)(borderPositionAndSize.Height * dpiScale.DpiScaleY);
-
-            // 창 위치와 크기 설정
-            bool moveResult = MoveWindow(scrcpyHandle, borderX, borderY, borderWidth, borderHeight, true);
-            Debug.WriteLine($"MoveWindow 호출 결과: {moveResult}");
-        }
+        // AdjustMirroringWindowWithPosition은 AdjustMirroringWindow와 동일 — 단일 메서드로 통합됨
 
         private void OnWindowClosed(object sender, EventArgs e)
         {
@@ -446,16 +404,10 @@ namespace MultiQuest_Management
                     var mirrorBorder = _cachedBorders[row, column];
                     if (mirrorBorder != null && !process.HasExited)
                     {
-                        Debug.WriteLine($"OnWindowSizeChanged 처리 중: {deviceIp}");
-
                         Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            AdjustMirroringWindowWithPosition(process, mirrorBorder);
+                            AdjustMirroringWindow(process, mirrorBorder);
                         }));
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"OnWindowSizeChanged 처리 실패: {deviceIp}");
                     }
                 }
             }
@@ -592,82 +544,27 @@ namespace MultiQuest_Management
 
         }
 
-        private Border FindChildBorderByName(DependencyObject parent, string name)
+        // 세 개의 동일 구조 탐색 메서드를 제네릭 하나로 통합
+        private static T FindChildByName<T>(DependencyObject parent, string name)
+            where T : FrameworkElement
         {
             if (parent == null) return null;
-
             int childCount = VisualTreeHelper.GetChildrenCount(parent);
             for (int i = 0; i < childCount; i++)
             {
                 var child = VisualTreeHelper.GetChild(parent, i);
-                // 이름이 일치하는 Border를 찾음
-                if (child is Border border && border.Name.Contains(name))
-                {
-                    return border;
-                }
-
-                // 재귀적으로 탐색
-                var result = FindChildBorderByName(child, name);
-                if (result != null)
-                {
-                    return result;
-                }
+                if (child is T fe && fe.Name.Contains(name)) return fe;
+                var result = FindChildByName<T>(child, name);
+                if (result != null) return result;
             }
-
             return null;
         }
 
-        private Label FindChildLabelByName(DependencyObject parent, string name)
-        {
-            if (parent == null) return null;
+        private Border FindChildBorderByName(DependencyObject parent, string name) => FindChildByName<Border>(parent, name);
+        private Label  FindChildLabelByName (DependencyObject parent, string name) => FindChildByName<Label>(parent, name);
+        private Image  FindChildImageByName (DependencyObject parent, string name) => FindChildByName<Image>(parent, name);
 
-            int childCount = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < childCount; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                // 이름이 일치하는 Border를 찾음
-                if (child is Label label && label.Name.Contains(name))
-                {
-                    return label;
-                }
-
-                // 재귀적으로 탐색
-                var result = FindChildLabelByName(child, name);
-                if (result != null)
-                {
-                    return result;
-                }
-            }
-
-            return null;
-        }
-
-        private Image FindChildImageByName(DependencyObject parent, string name)
-        {
-            if (parent == null) return null;
-
-            int childCount = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < childCount; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                // 이름이 일치하는 Border를 찾음
-                if (child is Image image && image.Name.Contains(name))
-                {
-                    return image;
-                }
-
-                // 재귀적으로 탐색
-                var result = FindChildImageByName(child, name);
-                if (result != null)
-                {
-                    return result;
-                }
-            }
-
-            return null;
-        }
-
-        private void UpdateDeviceLabels()
+        public void UpdateDeviceLabels()
         {
             for (int row = 0; row < MaxRows; row++)
             {
@@ -711,25 +608,24 @@ namespace MultiQuest_Management
 
         private void AddProcess(Process process, Device device)
         {
-            if (process == null || device == null)
-                return;
+            if (process == null || device == null) return;
             if (_mirroringProcesses.ContainsKey(device.Ip))
             {
                 Debug.WriteLine($"이미 등록된 프로세스: {device.Ip}");
                 return;
-
             }
 
             _mirroringProcesses[device.Ip] = process;
             process.EnableRaisingEvents = true;
             process.Exited += (s, e) =>
             {
-                string ip = device.Ip;
-                if (_mirroringProcesses.ContainsKey(ip))
+                // Dictionary는 UI 스레드에서만 접근해야 스레드 안전이 보장됨
+                Dispatcher.Invoke(() =>
                 {
+                    string ip = device.Ip;
                     _mirroringProcesses.Remove(ip);
                     Debug.WriteLine($"프로세스 제거됨: {ip}");
-                }
+                });
             };
             Debug.WriteLine($"프로세스 추가됨: {device.Ip}");
         }
@@ -769,51 +665,38 @@ namespace MultiQuest_Management
 
         private async void UpdateBatteryStatus()
         {
-            if (_mainWindow.Devices == null || _mainWindow.Devices.Count == 0)
-                return;
+            if (_mainWindow.Devices == null || _mainWindow.Devices.Count == 0) return;
 
-            foreach (var device in _mainWindow.Devices)
+            // 연결된 디바이스+위치만 수집
+            var targets = _mainWindow.Devices
+                .Where(d => d != null && d.Status == "Connected" && _devicePositionMap.ContainsKey(d))
+                .Select(d => (device: d, pos: _devicePositionMap[d]))
+                .ToList();
+
+            if (targets.Count == 0) return;
+
+            // 모든 기기 배터리를 병렬 조회
+            var tasks = targets.Select(t => Task.Run(() =>
             {
-                if (device == null || device.Status != "Connected")
-                    continue;
+                int level;
+                try { level = _mainWindow.GetBatteryLevel(t.device.Ip); }
+                catch { level = -1; }
+                return (t.pos, level);
+            }));
 
-                if (_cancellationTokenSource.Token.IsCancellationRequested)
-                    return;
+            var results = await Task.WhenAll(tasks);
+            if (_cancellationTokenSource.Token.IsCancellationRequested) return;
 
-                // 디바이스의 위치 가져오기
-                if (_devicePositionMap.TryGetValue(device, out var position))
+            // UI 업데이트 일괄 처리
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var (pos, level) in results)
                 {
-                    var batteryLabel = _cachedBatteryLabels[position.row, position.column];
-                    if (batteryLabel != null)
-                    {
-                        try
-                        {
-                            if (_cancellationTokenSource.Token.IsCancellationRequested)
-                                return;
-                            // 비동기적으로 배터리 잔량 가져오기
-                            int batteryLevel = await Task.Run(() => _mainWindow.GetBatteryLevel(device.Ip));
-                            if (_cancellationTokenSource.Token.IsCancellationRequested)
-                                return;
-                            // 배터리 잔량 업데이트
-                            Dispatcher.Invoke(() =>
-                            {
-                                Debug.WriteLine($"배터리 상태 업데이트: {device.Name} - {batteryLevel}%");
-                                batteryLabel.Content = batteryLevel >= 0
-                                    ? $"{batteryLevel}%"
-                                    : "Error";
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"배터리 상태 업데이트 실패: {ex.Message}");
-                            Dispatcher.Invoke(() =>
-                            {
-                                batteryLabel.Content = "Error";
-                            });
-                        }
-                    }
+                    var label = _cachedBatteryLabels[pos.row, pos.column];
+                    if (label != null)
+                        label.Content = level >= 0 ? $"{level}%" : "Error";
                 }
-            }
+            });
         }
 
         private void WifiCheckTimer_Tick(object sender, EventArgs e)

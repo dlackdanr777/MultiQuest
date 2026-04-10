@@ -163,8 +163,9 @@ namespace MultiQuest_Management
             {
                 if (!_scrcpy.HasExited)
                 {
-                    if (!_scrcpy.CloseMainWindow()) _scrcpy.Kill();
-                    _scrcpy.WaitForExit(800);
+                    // CloseMainWindow 실패 시 Kill — WaitForExit는 호출하지 않아 UI 블로킹 방지
+                    if (!_scrcpy.CloseMainWindow())
+                        _scrcpy.Kill();
                 }
             }
             catch { }

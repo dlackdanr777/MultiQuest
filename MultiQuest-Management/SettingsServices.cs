@@ -46,14 +46,15 @@ namespace MultiQuest_Management
 
         public void Save()
         {
-            var list = new List<KeyValueItem>(Items);
-            foreach(var kv in list)
-            {
-                // 키가 비어있으면 제거
-                if (string.IsNullOrWhiteSpace(kv.Key)) continue;
+            // 빈 키 항목을 컬렉션에서도 제거하여 Items와 저장 파일 간 불일치 방지
+            var toRemove = Items.Where(kv => string.IsNullOrWhiteSpace(kv.Key)).ToList();
+            foreach (var kv in toRemove) Items.Remove(kv);
+
+            foreach (var kv in Items)
                 kv.Key = kv.Key.Trim(); // 키 앞뒤 공백 제거
-            }
-            var json = JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true });
+
+            var json = JsonSerializer.Serialize(new List<KeyValueItem>(Items),
+                new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_file, json);
             RaiseChanged();
         }

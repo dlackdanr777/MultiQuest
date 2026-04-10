@@ -30,6 +30,36 @@ namespace MultiQuest_Management
                 ShowWindow(hwnd, SW_HIDE);
         }
 
+        /// <summary>살아있는 scrcpy 프로세스 전체를 숨긴다 (다른 패널로 전환 시 호출).</summary>
+        public static void HideAll(IEnumerable<Process> procs)
+        {
+            foreach (var p in procs)
+            {
+                try
+                {
+                    if (p == null || p.HasExited) continue;
+                    var hwnd = p.MainWindowHandle;
+                    if (hwnd != IntPtr.Zero) ShowWindow(hwnd, SW_HIDE);
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>살아있는 scrcpy 프로세스 전체를 다시 표시한다 (Meta Device 패널로 복귀 시 호출).</summary>
+        public static void ShowAll(IEnumerable<Process> procs)
+        {
+            foreach (var p in procs)
+            {
+                try
+                {
+                    if (p == null || p.HasExited) continue;
+                    var hwnd = p.MainWindowHandle;
+                    if (hwnd != IntPtr.Zero) ShowWindow(hwnd, SW_SHOW);
+                }
+                catch { }
+            }
+        }
+
         public static void Attach(Process proc, Border host, Window owner)
         {
             if (proc == null || host == null || owner == null) return;
@@ -63,14 +93,6 @@ namespace MultiQuest_Management
 
             MoveWindow(hwnd, x, y, w, h, true);
             ShowWindow(hwnd, SW_SHOW);
-
-            // SetParent 직후 Win32가 레이아웃을 반영하는 데 한 프레임 더 필요한 경우가 있음
-            // UI 스레드에서 두 번째 MoveWindow로 위치를 확정
-            owner.Dispatcher.BeginInvoke(() =>
-            {
-                if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) return;
-                MoveWindow(hwnd, x, y, w, h, true);
-            }, System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         public static void Adjust(Process proc, Border host, Window owner)
@@ -79,22 +101,31 @@ namespace MultiQuest_Management
             var hwnd = proc.MainWindowHandle;
             if (hwnd == IntPtr.Zero) return;
 
-            Point pt = default;
-            double dpiX = 1, dpiY = 1;
-            owner.Dispatcher.Invoke(() =>
+            void DoAdjust()
             {
-                pt = host.TransformToAncestor(owner).Transform(new Point(0, 0));
-                var dpi = VisualTreeHelper.GetDpi(owner);
-                dpiX = dpi.DpiScaleX;
-                dpiY = dpi.DpiScaleY;
-            });
+                if (proc.HasExited) return;
+                var hwnd2 = proc.MainWindowHandle;
+                if (hwnd2 == IntPtr.Zero) return;
+                try
+                {
+                    var pt  = host.TransformToAncestor(owner).Transform(new Point(0, 0));
+                    var dpi = VisualTreeHelper.GetDpi(owner);
+                    int x = (int)(pt.X * dpi.DpiScaleX);
+                    int y = (int)(pt.Y * dpi.DpiScaleY);
+                    int w = (int)(host.ActualWidth  * dpi.DpiScaleX);
+                    int h = (int)(host.ActualHeight * dpi.DpiScaleY);
 
-            int x = (int)(pt.X * dpiX);
-            int y = (int)(pt.Y * dpiY);
-            int w = (int)(host.ActualWidth * dpiX);
-            int h = (int)(host.ActualHeight * dpiY);
+                    // bRepaint=false: 위치/크기를 바꿀 때만 OS가 재렌더링 → 깜빡임 방지
+                    // 좌표 비교를 생략하고 항상 호출: GetWindowRect는 스크린 좌표라 부모 기준 좌표와 비교 불가
+                    MoveWindow(hwnd2, x, y, w, h, false);
+                }
+                catch { }
+            }
 
-            MoveWindow(hwnd, x, y, w, h, true);
+            if (owner.Dispatcher.CheckAccess())
+                DoAdjust();
+            else
+                owner.Dispatcher.BeginInvoke(DoAdjust, System.Windows.Threading.DispatcherPriority.Render);
         }
     }
 }
