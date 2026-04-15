@@ -1,0 +1,163 @@
+﻿using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows;
+using Application = System.Windows.Application;
+
+namespace MultiQuest_Management
+{
+    /// <summary>
+    /// Interaction logic for App.xaml
+    /// Single-instance guard using a named Mutex.
+    /// If another instance exists, try to activate its main window and exit.
+    /// 개선: 이전 인스턴스가 종료 중인 경우 짧게 대기하여 '이미 실행중' 메시지의 잔존을 줄임.
+    /// </summary>
+    public partial class App : Application
+    {
+        private static Mutex? _singleInstanceMutex;
+        private const string MutexName = "MultiQuest_Management_SingleInstance_Mutex_v1";
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_RESTORE = 9;
+
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            bool createdNew;
+            try
+            {
+                // 처음엔 소유권을 얻으면서 생성 시도
+                _singleInstanceMutex = new Mutex(true, MutexName, out createdNew);
+            }
+            catch (AbandonedMutexException)
+            {
+                // 이전 인스턴스가 비정상 종료되어 Mutex가 abandoned 상태 → 소유권 획득 성공으로 처리
+                createdNew = true;
+            }
+            catch
+            {
+                createdNew = false;
+            }
+
+            if (!createdNew)
+            {
+                // 같은 이름의 프로세스(이전 인스턴스) 검사
+                var current = Process.GetCurrentProcess();
+
+                // 만약 이전 인스턴스가 정상적으로 종료 중일 가능성이 있으므로 짧게 대기해본다.
+                // (예: 사용자가 창을 닫았지만 백그라운드 정리 때문에 프로세스가 완전히 종료되지 않은 경우)
+                const int waitMs = 5000;
+                const int pollIntervalMs = 200;
+                var sw = Stopwatch.StartNew();
+                bool restored = false;
+
+                while (sw.ElapsedMilliseconds < waitMs)
+                {
+                    var others = Process.GetProcessesByName(current.ProcessName)
+                                        .Where(p => p.Id != current.Id)
+                                        .ToList();
+
+                    // 다른 인스턴스가 없으면 다시 mutex 생성 시도
+                    if (!others.Any())
+                    {
+                        try
+                        {
+                            _singleInstanceMutex?.Dispose();
+                        }
+                        catch { }
+
+                        try
+                        {
+                            _singleInstanceMutex = new Mutex(true, MutexName, out createdNew);
+                        }
+                        catch (AbandonedMutexException)
+                        {
+                            // abandoned Mutex → 소유권 획득 성공으로 처리
+                            createdNew = true;
+                        }
+                        catch
+                        {
+                            createdNew = false;
+                        }
+
+                        if (createdNew)
+                        {
+                            // 이제 소유권을 획득했으므로 정상적으로 시작
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        // 존재하는 프로세스 중 창 핸들이 유효한 것을 찾아 복원/포커스 시도
+                        var withWindow = others.FirstOrDefault(p =>
+                        {
+                            try { return p.MainWindowHandle != IntPtr.Zero; }
+                            catch { return false; }
+                        });
+
+                        if (withWindow != null)
+                        {
+                            try
+                            {
+                                var h = withWindow.MainWindowHandle;
+                                ShowWindow(h, SW_RESTORE);
+                                SetForegroundWindow(h);
+                                restored = true;
+                            }
+                            catch { /* 무시 */ }
+
+                            // 다른 인스턴스가 활성 창을 갖고 있으므로 종료
+                            break;
+                        }
+                    }
+
+                    Thread.Sleep(pollIntervalMs);
+                }
+
+                // 만약 wait 루프동안 다른 활성 창이 발견되어 포커스한 경우, 그냥 종료
+                if (!createdNew)
+                {
+                    // 모호성 제거: WPF MessageBox를 명시적으로 사용
+                    if (restored)
+                        System.Windows.MessageBox.Show("이미 실행 중인 창을 활성화했습니다.", "중복 실행", MessageBoxButton.OK, MessageBoxImage.Information);
+                    else
+                        System.Windows.MessageBox.Show("프로그램이 이미 실행 중이거나 이전 인스턴스가 종료 중입니다. 잠시 후 다시 시도하세요.", "중복 실행", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    Shutdown();
+                    return;
+                }
+            }
+
+            base.OnStartup(e);
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            try
+            {
+                if (_singleInstanceMutex != null)
+                {
+                    try
+                    {
+                        // 소유권이 있을 때만 ReleaseMutex 호출 (안정성 확보)
+                        // ReleaseMutex는 소유자가 아닐 경우 예외를 던지므로 try/catch로 감싼다.
+                        _singleInstanceMutex.ReleaseMutex();
+                    }
+                    catch { /* 무시 */ }
+
+                    _singleInstanceMutex.Dispose();
+                    _singleInstanceMutex = null;
+                }
+            }
+            catch { /* 무시 */ }
+
+            base.OnExit(e);
+        }
+    }
+}

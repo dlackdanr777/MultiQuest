@@ -1,0 +1,2827 @@
+﻿// MainWindow.cs
+using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO; // ← NuGet: Zeroconf
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives; // GeneratorStatus
+using System.Windows.Media;
+using System.Windows.Threading;
+using Zeroconf;
+using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using Window = System.Windows.Window;
+
+
+namespace MultiQuest_Management
+{
+    public partial class MainWindow : Window
+    {
+        public event Action<Device> AddDeviceEvent;
+        public ObservableCollection<Device> Devices { get; set; } = new();
+
+        private DispatcherTimer _connectionCheckTimer;
+        private DispatcherTimer _keyEventTimer;
+        private DispatcherTimer _batteryCheckTimer;
+        // 각 콘텐츠별 패키지 후보 목록 (XAML 버튼 Tag와 인덱스 동일)
+        // 앞에 있는 패키지부터 순서대로 실행 시도하며, 설치된 것이 있으면 실행
+        private readonly string[][] _pkgNames =
+        {
+            // Tag=0: 영어마을
+            new[] { "com.StoryWing.EnglishTown",        "com.StoryWing.AlphabatApp" },
+            // Tag=1: 해양탐험
+            new[] { "com.StoryWing.Ocean_Adventure",    "com.StoryWing.OceanAdventure" },
+            // Tag=2: 한국사
+            new[] { "com.StoryWing.Korea_History",      "com.StoryWing.KoreaHistory2" },
+            // Tag=3: 태양계/우주
+            new[] { "com.StoryWing.Solar_System",       "com.StoryWing.SpaceApp" },
+            // Tag=4: 소방안전
+            new[] { "com.StoryWing.Fire_Safety",        "com.StoryWing.FirepreventionApp" },
+            // Tag=5: 쥬라기공원
+            new[] { "com.StoryWing.JurassicPark",       "com.StoryWing.XR_JurassicPark" },
+            // Tag=6: 브레인팝
+            new[] { "com.StoryWing.BrainPop",           "com.StoryWing.XR_BrainTraining" },
+            // Tag=7: 스마트팜
+            new[] { "com.StoryWing.SmartFarm",          "com.StoryWing.GyeongjuMR" },
+            // Tag=8: 박물관
+            new[] { "com.StoryWing.Museum",             "com.StoryWing.XR_Museum" },
+            // Tag=9: 세계여행
+            new[] { "com.StoryWing.World_Travel",       "com.StoryWing.XR_WorldMap" },
+            // Tag=10: 해양 관람
+            new[] { "com.StoryWing.OceanAdventure_ViewVer" },
+            // Tag=11: 우주 관람
+            new[] { "com.StoryWing.SpaceAppTest" },
+            // Tag=12: 코딩
+            new[] { "com.StoryWing.XR_Coding" },
+        };
+        private CancellationTokenSource _scanCancelSource;
+        private MultiMirrorWindow _multiMirrorWindow;
+        private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
+
+        // scrcpy 프로세스 관리자 (타일 임베드용)
+        private readonly Dictionary<string, Process> _scrcpy = new();
+
+        // 네트워크 안정성: 연속 실패 카운트 및 임계값(유예 기간)
+        private readonly Dictionary<string, int> _missCounts = new(StringComparer.OrdinalIgnoreCase);
+        private const int MissThreshold = 3; // 연속 실패 허용 횟수
+        private readonly object _missLock = new();
+
+        private bool _isShuttingDown; // 창 종료 중 여부
+        private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
+        private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
+
+        // 동시 실행 scrcpy 제한 — 16대 동시 미러링 지원
+        private static readonly int ScrcpyMaxConcurrency = 16;
+        private static readonly SemaphoreSlim _scrcpySemaphore = new(ScrcpyMaxConcurrency, ScrcpyMaxConcurrency);
+
+        // 자동 재연결 상태 관리
+        private sealed class ReconnectState
+        {
+            public int Attempt;
+            public DateTime NextUtc;
+            public bool IsRunning;
+        }
+        private readonly Dictionary<string, ReconnectState> _reconnectStates = new(StringComparer.OrdinalIgnoreCase);
+
+        // 레이아웃 변동 시 임베드 창 재부착 디바운스 타이머 (300ms로 설정)
+        private readonly DispatcherTimer _tilesAdjustDebounce = new() { Interval = TimeSpan.FromMilliseconds(300) };
+
+        // IP별 미러링 시작 중 여부 (중복 실행 방지)
+        private readonly HashSet<string> _mirrorStarting = new(StringComparer.OrdinalIgnoreCase);
+
+        // 디바이스 서치 진행 중 여부 (서치 중에는 새 scrcpy 창 표시 억제)
+        private bool _isScanning;
+
+        public void SetMultiMirrorWindow(MultiMirrorWindow window) => _multiMirrorWindow = window;
+
+        // IPv4 또는 IPv4:PORT 형태만 허용
+        private static bool IsValidIpEndpoint(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var s = value.Trim();
+            // ip:port
+            var idx = s.LastIndexOf(':');
+            if (idx > 0 && idx < s.Length - 1)
+            {
+                var host = s.Substring(0, idx);
+                var portStr = s[(idx + 1)..];
+                if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork &&
+                    int.TryParse(portStr, out var port) && port > 0 && port <= 65535)
+                {
+                    return true;
+                }
+            }
+            // ip only
+            return IPAddress.TryParse(s, out var ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork;
+        }
+
+        // adb devices 목록 중 'ip가 아닌 식별자(USB 등)'로 연결된 디바이스 시리얼 목록 가져오기
+        private HashSet<string> GetNonIpAdbSerials()
+        {
+            var serials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string output = RunCmd("adb devices", 3000);
+                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in lines)
+                {
+                    var trimmed = line.Trim();
+                    var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        var addr = parts[0];
+                        var state = parts[^1];
+                        if (!IsValidIpEndpoint(addr) && state.Equals("device", StringComparison.OrdinalIgnoreCase))
+                        {
+                            serials.Add(addr);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return serials;
+        }
+
+        public MainWindow()
+        {
+            EnsureAdbRunning();
+            InitializeComponent();
+            DataContext = this;
+
+            // 종료 시점 감지 (메시지 박스 등 UI 호출 방지)
+            this.Closing += (_, __) => _isShuttingDown = true;
+
+            // 초기 연결 기기 수집
+            InitializeConnectedDevices();
+
+            // 자동 미러링을 위한 구독
+            Devices.CollectionChanged += Devices_CollectionChanged;
+            Tiles.ItemContainerGenerator.StatusChanged += ItemContainerGenerator_StatusChanged;
+            // LayoutUpdated는 매 프레임 수십 번 발생하므로 제거 — SizeChanged와 StatusChanged로 대체
+            _tilesAdjustDebounce.Tick += (_, __) =>
+            {
+                _tilesAdjustDebounce.Stop();
+                AdjustAllEmbeddedScrcpy();
+            };
+
+            this.SizeChanged += Window_SizeChanged;
+            this.Closed += OnClose;
+            foreach (var d in Devices) HookDevice(d);
+
+            // 타이머들
+            _connectionCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            _connectionCheckTimer.Tick += ConnectionCheckTimer_Tick;
+            _connectionCheckTimer.Start();
+
+            _keyEventTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(180) };
+            _keyEventTimer.Tick += KeyEventTimer_Tick;
+            _keyEventTimer.Start();
+
+            _batteryCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+            _batteryCheckTimer.Tick += UpdateBatteryStatus;
+            _batteryCheckTimer.Start();
+
+            SettingsService.Instance.Changed += OnChangeSerialName;
+            OnChangeSerialName(_serialNameDic);
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
+        }
+
+        // Tiles_LayoutUpdated는 제거됨 — Window_SizeChanged + ItemContainerGenerator_StatusChanged로 대체
+        // LayoutUpdated는 매 프레임 수십 번 발생하므로 MoveWindow 과호출 → scrcpy 깜빡임 유발
+
+        // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재설정
+        private void AdjustAllEmbeddedScrcpy()
+        {
+            foreach (var entry in _scrcpy)
+            {
+                var proc = entry.Value;
+                try
+                {
+                    if (proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) continue;
+                    var device = Devices.FirstOrDefault(d => d.Ip == entry.Key && d.IsConnected);
+                    if (device == null) continue;
+                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                    if (host != null) ScrcpyEmbedder.Adjust(proc, host, this);
+                }
+                catch { }
+            }
+
+            // SizeChanged 시 HideAll로 숨겼던 창들을 크기 조정 후 다시 표시
+            // 스캔 중이거나 MetaDevice 패널이 아닌 경우에는 표시하지 않음
+            if (!_isScanning && PanelMetaDevice.Visibility == Visibility.Visible)
+                ScrcpyEmbedder.ShowAll(_scrcpy.Values);
+        }
+
+        // ====================== ADB 초기 스캔 ======================
+
+        private void InitializeConnectedDevices()
+        {
+            string adbOutput = RunCmd("adb devices", 3000);
+            var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // USB(비-IP)로 연결된 기기의 시리얼 목록을 확보하여 중복 추가 방지
+            var nonIpSerials = GetNonIpAdbSerials();
+
+            foreach (var line in lines)
+            {
+                if (line.TrimEnd().EndsWith("device"))
+                {
+                    var parts = line.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0)
+                    {
+                        string addr = parts[0];
+                        if (!IsValidIpEndpoint(addr)) continue; // IP 형식이 아니면 무시
+                        if (Devices.Any(d => d.Ip == addr)) continue; // 이미 같은 주소 존재
+
+                        string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1000, 5, 300).Trim();
+                        if (string.IsNullOrEmpty(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                            serial = "UnknownSerial";
+
+                        // 같은 시리얼이 이미 있거나, USB(비-IP) 연결 상태면 추가하지 않음
+                        if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
+                            (Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)) ||
+                             nonIpSerials.Contains(serial)))
+                            continue;
+
+                        AddDevice(new Device
+                        {
+                            Serial = serial,
+                            Ip = addr,
+                            Status = "Connected"
+                        });
+                    }
+                }
+            }
+        }
+
+        // ====================== 상태 타이머 ======================
+        private async void KeyEventTimer_Tick(object? sender, EventArgs e)
+        {
+            var connected = Devices.Where(d => d.Status == "Connected").ToList();
+            if (connected.Count == 0) return;
+
+            // 모든 디바이스에 화면 켜기(KEYCODE_WAKEUP=224)를 병렬 전송
+            await Task.WhenAll(connected.Select(device =>
+                Task.Run(() => RunCmd($"adb -s {device.Ip} shell input keyevent 224", 2000))));
+        }
+
+        private async void ConnectionCheckTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_isConnCheckRunning) return; // 중복 실행 방지
+            _isConnCheckRunning = true;
+            try
+            {
+                // adb 출력 한 번만 파싱해서 상태 맵 구성
+                string adbOutput = await Task.Run(() => RunCmd("adb devices", 3000));
+                var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+                var statusMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var line in lines)
+                {
+                    var trimmed = line.Trim();
+                    // 예상 포맷: "<addr>\t<status>" 또는 "<addr> <status>"
+                    var parts = trimmed.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        var addr = parts[0];
+                        var state = parts[^1];
+                        if (state is "device" or "offline" or "unauthorized")
+                        {
+                            statusMap[addr] = state;
+                        }
+                    }
+                }
+
+                // 각 디바이스에 대해 miss 카운트 기반으로 상태 반영 (유예 기능)
+                // UI 스레드 복귀 후이므로 Devices 직접 순회 가능 (ToList 불필요)
+                foreach (var device in Devices)
+                {
+                    var ip = device.Ip;
+                    bool seen = statusMap.TryGetValue(ip, out var state);
+
+                    if (seen && state.Equals("device", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 정상 응답: miss 카운트 리셋 및 즉시 Connected로 표시
+                        lock (_missLock) { _missCounts[ip] = 0; }
+                        if (!string.Equals(device.Status, "Connected", StringComparison.OrdinalIgnoreCase))
+                            device.Status = "Connected";
+                    }
+                    else
+                    {
+                        int miss;
+                        lock (_missLock)
+                        {
+                            if (!_missCounts.ContainsKey(ip)) _missCounts[ip] = 0;
+                            _missCounts[ip] = _missCounts[ip] + 1;
+                            miss = _missCounts[ip];
+                        }
+
+                        if (miss >= MissThreshold)
+                        {
+                            // 임계값 도달 시 실제로 오프라인 처리
+                            if (seen)
+                            {
+                                device.Status = state.Equals("offline", StringComparison.OrdinalIgnoreCase) ? "Offline"
+                                    : state.Equals("unauthorized", StringComparison.OrdinalIgnoreCase) ? "Unauthorized" : "Failed";
+                            }
+                            else
+                            {
+                                device.Status = "Failed";
+                            }
+
+                            if (device.Status == "Offline" || device.Status == "Failed")
+                                ScheduleReconnect(device);
+                        }
+                        else
+                        {
+                            // 임계값 미만: 기존 상태 유지 (유예)
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _isConnCheckRunning = false;
+            }
+        }
+
+        private void ScheduleReconnect(Device device)
+        {
+            if (device == null || string.IsNullOrWhiteSpace(device.Ip)) return;
+
+            ReconnectState st;
+            lock (_reconnectStates)
+            {
+                if (!_reconnectStates.TryGetValue(device.Ip, out st))
+                {
+                    st = new ReconnectState { Attempt = 0, NextUtc = DateTime.MinValue, IsRunning = false };
+                    _reconnectStates[device.Ip] = st;
+                }
+
+                // 아직 대기 시간
+                if (st.IsRunning || DateTime.UtcNow < st.NextUtc) return;
+                st.IsRunning = true;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                bool ok = false;
+                try
+                {
+                    ok = await TryReconnectDeviceAsync(device);
+                }
+                catch { }
+                finally
+                {
+                    lock (_reconnectStates)
+                    {
+                        if (_reconnectStates.TryGetValue(device.Ip, out var s))
+                        {
+                            if (ok)
+                            {
+                                s.Attempt = 0;
+                                s.NextUtc = DateTime.UtcNow.AddSeconds(2);
+                            }
+                            else
+                            {
+                                s.Attempt = Math.Min(s.Attempt + 1, 10);
+                                // 지수 백오프 (최대 60초)
+                                var delaySec = Math.Min(60, (int)Math.Pow(2, s.Attempt));
+                                s.NextUtc = DateTime.UtcNow.AddSeconds(delaySec);
+                            }
+                            s.IsRunning = false;
+                        }
+                    }
+                }
+            });
+        }
+
+        private async Task<bool> TryReconnectDeviceAsync(Device device)
+        {
+            if (device == null) return false;
+
+            // 1) 기존 주소로 재연결 시도
+            string output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
+            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+            {
+                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
+                return true;
+            }
+
+            // 2) 간단한 정리 후 재시도
+            RunCmd($"adb disconnect {device.Ip}", 1000);
+            output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
+            if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+            {
+                await Dispatcher.InvokeAsync(() => device.Status = "Connected");
+                return true;
+            }
+
+            // 3) mDNS에서 동일 IP의 최신 포트 확인 후 재시도 (빠른 경로)
+            try
+            {
+                var mdns = await AdbMdnsDiscovery.DiscoverAsync(2500);
+                string ipOnly = device.Ip.Split(':')[0];
+                var cand = mdns.FirstOrDefault(t => string.Equals(t.ip, ipOnly, StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(cand.ip) && cand.port > 0)
+                {
+                    string addr = $"{cand.ip}:{cand.port}";
+                    string out2 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
+                    if (out2.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                        out2.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            device.Ip = addr; // 포트 갱신
+                            device.Status = "Connected";
+                        });
+                        return true;
+                    }
+                }
+            }
+            catch { }
+
+            // 4) 기본 포트(5555) 빠른 체크
+            try
+            {
+                string ipOnly = device.Ip.Split(':')[0];
+                if (await TryConnectPort(ipOnly, 5555, CancellationToken.None))
+                {
+                    string addr = $"{ipOnly}:5555";
+                    string out3 = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 200);
+                    if (out3.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                        out3.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            device.Ip = addr;
+                            device.Status = "Connected";
+                        });
+                        return true;
+                    }
+                }
+            }
+            catch { }
+
+            return false;
+        }
+
+        private async void UpdateBatteryStatus(object? sender, EventArgs e)
+        {
+            if (_isBatteryCheckRunning) return;
+            _isBatteryCheckRunning = true;
+            try
+            {
+                var targets = Devices.Where(d => d != null && d.Status == "Connected").ToList();
+                if (targets.Count == 0) return;
+
+                // 모든 디바이스 배터리를 병렬로 동시 조회
+                var tasks = targets.Select(device => Task.Run(() =>
+                {
+                    int level;
+                    try   { level = GetBatteryLevel(device.Ip); }
+                    catch { level = 0; }
+                    return (device.Ip, level);
+                }));
+
+                var results = await Task.WhenAll(tasks);
+
+                // UI 업데이트는 한 번의 Dispatcher.Invoke 로 일괄 처리
+                Dispatcher.Invoke(() =>
+                {
+                    foreach (var (ip, level) in results)
+                    {
+                        var d = Devices.FirstOrDefault(d => d.Ip == ip);
+                        if (d != null) d.BatteryLevel = level;
+                    }
+                });
+            }
+            finally
+            {
+                _isBatteryCheckRunning = false;
+            }
+        }
+
+        private void OnChangeSerialName(IReadOnlyDictionary<string, string> serialNameDic)
+        {
+            // 최신 스냅샷으로 갱신 (저장 직후 반영 누락 방지)
+            _serialNameDic = serialNameDic ?? new Dictionary<string, string>();
+
+            foreach (var device in Devices)
+            {
+                if (_serialNameDic.TryGetValue(device.Serial, out var name))
+                {
+                    if (device.Name?.Equals(name, StringComparison.Ordinal) == true) continue;
+                    device.Name = name;
+                }
+                else
+                {
+                    device.Name = device.Serial; // 시리얼을 이름으로 사용
+                }
+            }
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
+        }
+
+        // 디바이스 이름(Label) 즉시 반영
+        private void UpdateDeviceLabels()
+        {
+            // MultiMirrorWindow에도 반영 필요 — Reflection 대신 직접 호출
+            _multiMirrorWindow?.UpdateDeviceLabels();
+
+            if (Tiles == null || Devices == null) return;
+            foreach (var device in Devices)
+            {
+                var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                if (host == null) continue;
+                var label = FindVisualChildByName<System.Windows.Controls.Label>(host, "DeviceNameLabel");
+                if (label != null) label.Content = device.Name;
+            }
+        }
+
+        // ====================== 앱 버튼들 ======================
+        private async void ConnectBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as Button)?.DataContext is Device device)
+            {
+                string result = await Task.Run(() => RunCmd($"adb connect {device.Ip}", 5000));
+                device.Status = result.Contains("connected") ? "Connected" : "Failed";
+            }
+        }
+
+        private async void ShowVideoWallBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_multiMirrorWindow != null && _multiMirrorWindow.IsVisible)
+            {
+                _multiMirrorWindow.Activate();
+                return;
+            }
+            _multiMirrorWindow = new MultiMirrorWindow(this);
+            _multiMirrorWindow.Show();
+
+            await Dispatcher.BeginInvoke(async () =>
+            {
+                await _multiMirrorWindow.StartMirroringDevicesAsync(Devices);
+            });
+        }
+
+        public async Task<Process> StartMirroringAsync(Device device, int width, int height, CancellationToken cancellationToken)
+        {
+            if (device == null || device.Status != "Connected") return null;
+
+            string videoCodec = "h264";
+            bool noAudio = true;
+            // 동시 접속 기기 수에 따라 비트레이트 자동 조정:
+            // 기기가 많을수록 AP 대역폭을 공유하므로 비트레이트를 낮춰 전체 안정성 확보
+            // 1~4대: 4Mbps, 5~8대: 3Mbps, 9대 이상: 2Mbps
+            int connectedCount = Devices.Count(d => d.IsConnected);
+            int bitrateMbps = connectedCount >= 9 ? 2 : connectedCount >= 5 ? 3 : 4;
+            int maxFps = connectedCount >= 9 ? 15 : 20;  // 9대 이상이면 fps도 낮춰 부하 감소
+            string windowTitle = device.Name;
+            int windowWidth = width, windowHeight = height;
+            int maxSize = connectedCount >= 9 ? 360 : 480;  // 9대 이상이면 해상도도 축소
+            int buffer = 200;      // 200ms: 메타 퀘스트 Wi-Fi ADB의 지터 흡수
+
+            int maxRetry = 3;         // 5 → 3: 실패 누적 시간 단축
+            int pollIntervalMs = 50;  // 100 → 50: 창 핸들 탐지 속도 향상
+            int maxWaitMs = 4000;     // 10000 → 4000: 응답 없는 프로세스 빨리 포기
+            Process newProc = null;
+
+            for (int attempt = 1; attempt <= maxRetry; attempt++)
+            {
+                if (cancellationToken.IsCancellationRequested) return null;
+
+                try
+                {
+                    var argList = new[]
+                    {
+                        $"-s {device.Ip}",
+                        $"--video-codec={videoCodec}",
+                        noAudio ? "--no-audio" : "",
+                        $"-b {bitrateMbps}M",
+                        $"--max-fps {maxFps}",
+                        $"--max-size {maxSize}",
+                        $"--video-buffer={buffer}",
+                        $"--window-title \"{windowTitle}\"",
+                        $"--window-width={windowWidth}",
+                        $"--window-height={windowHeight}",
+                    }.Where(s => !string.IsNullOrWhiteSpace(s));
+
+                    string arguments = string.Join(" ", argList);
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe"),
+                        Arguments = arguments,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    newProc = Process.Start(psi);
+                    newProc.EnableRaisingEvents = true;
+
+                    // WaitForInputIdle 제거: scrcpy는 표준 GUI 메시지 루프가 없어
+                    // WaitForInputIdle이 즉시 실패하거나 1초 블로킹됨
+
+                    bool hasWindow = false;
+                    var sw = Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < maxWaitMs && !cancellationToken.IsCancellationRequested)
+                    {
+                        if (newProc.HasExited) break;
+                        try
+                        {
+                            newProc.Refresh();
+                            if (newProc.MainWindowHandle != IntPtr.Zero)
+                            {
+                                hasWindow = true;
+                                break;
+                            }
+                        }
+                        catch { }
+                        try { await Task.Delay(pollIntervalMs, cancellationToken); } catch { break; }
+                    }
+
+                    if (!hasWindow || newProc.HasExited)
+                    {
+                        try { if (!newProc.HasExited) newProc.Kill(); } catch { }
+                        newProc = null;
+                        // 재시도 전 잠깐 대기 (ADB 연결 안정화)
+                        if (attempt < maxRetry)
+                            try { await Task.Delay(500, cancellationToken); } catch { break; }
+                        continue;
+                    }
+                    else
+                    {
+                        break; // 성공
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    if (newProc != null && !newProc.HasExited) try { newProc.Kill(); } catch { }
+                    throw;
+                }
+                catch
+                {
+                    if (newProc != null && !newProc.HasExited) try { newProc.Kill(); } catch { }
+                    newProc = null;
+                    if (attempt < maxRetry)
+                        try { await Task.Delay(500, cancellationToken); } catch { break; }
+                }
+            }
+
+            if (cancellationToken.IsCancellationRequested && newProc != null && !newProc.HasExited)
+            {
+                try { newProc.Kill(); } catch { }
+                return null;
+            }
+
+            return newProc;
+        }
+
+        public async Task<Process> StartMirroringWithSemaphoreAsync(Device device, int width, int height, CancellationToken cancellationToken)
+        {
+            await _scrcpySemaphore.WaitAsync(cancellationToken);
+            try
+            {
+                // StartMirroringAsync 내부에서 이미 maxRetry=3 재시도를 수행하므로 여기서 추가 재시도 불필요
+                // 중복 재시도 시 세마포어를 최대 9회×4초 = 36초 점유 → 다른 기기 대기 급증
+                return await StartMirroringAsync(device, width, height, cancellationToken);
+            }
+            finally
+            {
+                _scrcpySemaphore.Release();
+            }
+        }
+
+
+        static string PickStableDisplayId(string adbSerial)
+        {
+            // 퀘스트라고 가정하고, 가장 단순하고 안전하게 간다.
+            string cd = RunAdb(adbSerial, "shell cmd display list");
+            if (string.IsNullOrWhiteSpace(cd))
+                return "0"; // 정보 못 얻으면 그냥 0
+
+            // "Display N" 단위로 블록 나누기
+            var blocks = Regex.Split(cd, @"(?=Display\s+\d+)")
+                              .Where(b => !string.IsNullOrWhiteSpace(b))
+                              .ToList();
+
+            int bestId = 0;
+            int bestScore = int.MinValue;
+
+            foreach (var block in blocks)
+            {
+                // 1) Display 번호 (10진수) 추출
+                var mId = Regex.Match(block, @"Display\s+(\d+)");
+                if (!mId.Success) continue;
+
+                int id;
+                if (!int.TryParse(mId.Groups[1].Value, out id))
+                    continue;
+
+                string lower = block.ToLowerInvariant();
+                int score = 0;
+
+                // 2) 상태
+                if (lower.Contains("state=on"))
+                    score += 50;
+                if (lower.Contains("state=off") || lower.Contains("doze"))
+                    score -= 100;
+
+                // 3) 기본 / 메인 힌트
+                if (lower.Contains("flag_default_display"))
+                    score += 20;
+                if (lower.Contains("primary") || lower.Contains("built-in") || lower.Contains("internal"))
+                    score += 10;
+
+                // 4) 해상도(너무 작은 dummy display는 버리기)
+                var mRes = Regex.Match(lower, @"real\s+(\d+)\s*x\s*(\d+)");
+                if (mRes.Success &&
+                    int.TryParse(mRes.Groups[1].Value, out int w) &&
+                    int.TryParse(mRes.Groups[2].Value, out int h))
+                {
+                    if (w < 50 || h < 50)
+                    {
+                        // 1x1, 16x16 같은 건 거의 overlay/dummy
+                        score -= 200;
+                    }
+                    else
+                    {
+                        // 넓을수록 살짝 가산
+                        int area = w * h;
+                        score += Math.Min(100, area / 2000);
+                    }
+                }
+
+                // 5) 최고 점수 갱신
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestId = id;
+                }
+            }
+
+            return bestId.ToString();
+        }
+
+
+
+        static string RunAdb(string serial, string args)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = _adbPath,
+                Arguments = $"-s {serial} {args}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            // ReadToEnd를 WaitForExit 전에 호출해야 버퍼 데드락을 방지한다.
+            string output = p.StandardOutput.ReadToEnd();
+            string _ = p.StandardError.ReadToEnd();
+            p.WaitForExit(2000);
+            return output;
+        }
+
+
+
+        // 버튼 클릭 사운드 (UI 스레드에서 논블로킹으로 재생)
+        private static void PlayClickSound()
+        {
+            try { System.Media.SystemSounds.Beep.Play(); } catch { }
+        }
+
+        // 지정된 디바이스에서 설치된 패키지를 순서대로 찾아 실행 (백그라운드 비동기)
+        // 후보 중 하나라도 실행에 성공하면 즉시 반환
+        public async void StartApp(Device device, int index, Action onCompleted = null)
+        {
+            if (device == null || device.Status != "Connected") { ShowMsg("기기를 확인하세요."); return; }
+
+            string activity = "com.unity3d.player.UnityPlayerActivity";
+            string[] candidates = _pkgNames[index];
+
+            await Task.Run(() =>
+            {
+                foreach (var pkg in candidates)
+                {
+                    string result = RunCmd($"adb -s {device.Ip} shell am start -n {pkg}/{activity}", 2000);
+                    // "Error" 또는 "does not exist" 가 없으면 성공으로 판단
+                    if (!result.Contains("Error", StringComparison.OrdinalIgnoreCase) &&
+                        !result.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+                    {
+                        break; // 성공 → 이후 후보 시도 중단
+                    }
+                }
+            });
+
+            onCompleted?.Invoke();
+        }
+
+        // ====================== 앱 제어 버튼 ======================
+        private void StartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            var button = sender as Button;
+            var device = button?.DataContext as Device;
+            if (!TryGetPkgIndex(sender, out int index)) { this.IsEnabled = true; return; }
+            StartApp(device, index);
+        }
+
+        // 병렬 처리로 변경
+        private async void AllDeviceStartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+            if (!TryGetPkgIndex(sender, out int index)) { this.IsEnabled = true; return; }
+            if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
+
+            // 앱 실행 즉시 Meta Device 패널로 전환 (미러링 창 바로 확인)
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+            ScrcpyEmbedder.ShowAll(_scrcpy.Values);
+
+            string activity = "com.unity3d.player.UnityPlayerActivity";
+            string[] candidates = _pkgNames[index];
+            var connectedDevices = Devices.Where(d => d.Status == "Connected").ToList();
+
+            var failed = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(connectedDevices, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                {
+                    bool launched = false;
+                    foreach (var pkg in candidates)
+                    {
+                        // 타임아웃 단축(1500ms), 재시도 없이 1회만 시도해 속도 향상
+                        string result = RunCmd($"adb -s {device.Ip} shell am start -n {pkg}/{activity}", 1500);
+                        if (!result.Contains("Error", StringComparison.OrdinalIgnoreCase) &&
+                            !result.Contains("does not exist", StringComparison.OrdinalIgnoreCase) &&
+                            !result.Contains("Timeout", StringComparison.OrdinalIgnoreCase))
+                        {
+                            launched = true;
+                            break;
+                        }
+                    }
+                    if (!launched) failed.Add(device.Name);
+                });
+            });
+
+            if (failed.Count > 0) ShowMsg($"일부 기기 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
+            else ShowMsg("전체 기기 앱 실행 성공");
+            this.IsEnabled = true;
+        }
+
+        // ====================== 코딩 앱 전용 버튼 ======================
+        // 동작 방식:
+        //   버튼 Tag(0~27) = 시작 stage 오프셋
+        //   연결된 모든 기기에 병렬 실행하되, 각 기기 슬롯 인덱스(0-based)를 stage 값으로 전달
+        //   예) 연결 기기 3대, 버튼 Tag=5 → 기기0:stage=5, 기기1:stage=6, 기기2:stage=7
+        private async void CodingAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (sender is not Button btn) return;
+            if (!int.TryParse(btn.Tag as string, out int startStage) || startStage < 0)
+            {
+                ShowMsg("슬롯 번호가 올바르지 않습니다.");
+                return;
+            }
+            await StartCodingAppAsync(startStage);
+        }
+
+        // startStage : 버튼 Tag 값(0~27) — 첫 번째 기기에 전달할 stage 값
+        // 이후 기기들은 startStage+1, startStage+2 ... 순서로 증가
+        // AllDeviceStartAppBtn_Click 과 동일하게 전체 기기 병렬 실행
+        private async Task StartCodingAppAsync(int startStage)
+        {
+            var connectedDevices = Devices.Where(d => d.Status == "Connected").ToList();
+            if (connectedDevices.Count == 0)
+            {
+                ShowMsg("연결된 기기가 없습니다.");
+                return;
+            }
+
+            // 앱 실행 후 Meta Device 패널로 전환 (AllDeviceStartAppBtn_Click 와 동일)
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+            ScrcpyEmbedder.ShowAll(_scrcpy.Values);
+
+            string pkg      = _pkgNames[12][0]; // "com.StoryWing.XR_Coding"
+            string activity = "com.unity3d.player.UnityPlayerActivity";
+
+            var failed = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(
+                    connectedDevices.Select((device) => (device, stage: startStage)),
+                    new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                    item =>
+                    {
+                        // Unity 쪽: Intent.getIntExtra("stage", 0) 으로 읽음
+                        string cmd = $"adb -s {item.device.Ip} shell am start " +
+                                     $"-n {pkg}/{activity} " +
+                                     $"--ei stage {item.stage}";
+
+                        string result = RunCmd(cmd, 1500);
+
+                        if (result.Contains("Error",          StringComparison.OrdinalIgnoreCase) ||
+                            result.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                            result.Contains("Timeout",        StringComparison.OrdinalIgnoreCase))
+                        {
+                            failed.Add($"{item.device.Name} (stage={item.stage})");
+                        }
+                    });
+            });
+
+            if (failed.Count > 0)
+                ShowMsg($"일부 기기 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
+            else
+                ShowMsg("전체 기기 코딩 앱 실행 성공");
+        }
+
+        // force-stop용 flat 패키지 목록 — 암배연산으로 한 번만 계산
+        private string[] _allUniquePkgsCache;
+        private string[] GetAllUniquePkgs()
+            => _allUniquePkgsCache ??= _pkgNames.SelectMany(c => c).Distinct().ToArray();
+
+        public async void StopDeviceApp(Device device, Action onCompleted = null)
+        {
+            if (device == null || device.Status != "Connected") { ShowMsg("기기를 확인하세요."); return; }
+
+            var pkgs = GetAllUniquePkgs();
+            await Task.Run(() =>
+            {
+                // 병렬로 force-stop — 각 패키지는 독립적이므로 안전
+                Parallel.ForEach(pkgs, new ParallelOptions { MaxDegreeOfParallelism = 6 }, pkg =>
+                    RunCmd($"adb -s {device.Ip} shell am force-stop {pkg}", 1000));
+            });
+
+            onCompleted?.Invoke();
+        }
+
+        // 병렬 처리
+        private async void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+            if (Devices.Count == 0) { ShowMsg("연결된 기기가 없습니다."); this.IsEnabled = true; return; }
+
+            var pkgs = GetAllUniquePkgs();
+            var connectedDevices = Devices.Where(d => d.Status == "Connected").ToList();
+
+            await Task.Run(() =>
+            {
+                // 기기 × 패키지 조합을 모두 병렬로 한 번에 실행
+                Parallel.ForEach(
+                    connectedDevices.SelectMany(d => pkgs.Select(p => (device: d, pkg: p))),
+                    new ParallelOptions { MaxDegreeOfParallelism = 16 },
+                    item => RunCmd($"adb -s {item.device.Ip} shell am force-stop {item.pkg}", 1000));
+            });
+
+            ShowMsg("전체 기기 앱 종료");
+            this.IsEnabled = true;
+        }
+
+        // ====================== 검색 오버레이 제어 ======================
+        private DispatcherTimer _spinnerTimer;
+        private double _spinnerAngle = 0;
+
+        private void ShowSearchOverlay(string statusText = "디바이스 탐색 중...")
+        {
+            _isScanning = true;
+            SearchStatusText.Text = statusText;
+            SearchPercentText.Text = "0%";
+            SearchOverlay.Visibility = Visibility.Visible;
+            BtnMetaDevice.IsEnabled = false;
+            BtnXrExperience.IsEnabled = false;
+            BtnXrCoding.IsEnabled = false;
+            BtnXrEnglish.IsEnabled = false;
+            ScrcpyEmbedder.HideAll(_scrcpy.Values.ToList());
+            if (_spinnerTimer == null)
+            {
+                _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                _spinnerTimer.Tick += (_, __) =>
+                {
+                    _spinnerAngle = (_spinnerAngle + 6) % 360;
+                    SpinnerRotate.Angle = _spinnerAngle;
+                };
+            }
+            _spinnerAngle = 0;
+            _spinnerTimer.Start();
+        }
+
+        // 서치 중에 Attach가 억제된 IP 집합 (HideSearchOverlay에서 Attach 처리 후 클리어)
+        private readonly HashSet<string> _pendingAttach = new(StringComparer.OrdinalIgnoreCase);
+
+        private void HideSearchOverlay()
+        {
+            _isScanning = false;
+            _spinnerTimer?.Stop();
+            SearchOverlay.Visibility = Visibility.Collapsed;
+            BtnMetaDevice.IsEnabled = true;
+            BtnXrExperience.IsEnabled = true;
+            BtnXrCoding.IsEnabled = true;
+            BtnXrEnglish.IsEnabled = true;
+            if (PanelMetaDevice.Visibility == Visibility.Visible)
+            {
+                // 서치 중에 Attach가 억제됐던 프로세스들만 지금 Attach
+                foreach (var ip in _pendingAttach.ToList())
+                {
+                    if (!_scrcpy.TryGetValue(ip, out var proc)) continue;
+                    try
+                    {
+                        if (proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) continue;
+                        var device = Devices.FirstOrDefault(d => d.Ip == ip && d.IsConnected);
+                        if (device == null) continue;
+                        var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                        if (host != null) ScrcpyEmbedder.Attach(proc, host, this);
+                    }
+                    catch { }
+                }
+                _pendingAttach.Clear();
+
+                // 이미 Attach된 창들은 위치/크기만 재조정
+                ScrcpyEmbedder.ShowAll(_scrcpy.Values.ToList());
+                AdjustAllEmbeddedScrcpy();
+            }
+        }
+
+        private void SetSearchProgress(int current, int max, string statusText = null)
+        {
+            if (max <= 0) return;
+            int pct = Math.Min(100, (int)((double)current / max * 100));
+            SearchPercentText.Text = $"{pct}%";
+            if (statusText != null) SearchStatusText.Text = statusText;
+        }
+
+        private void SearchCancelBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _scanCancelSource?.Cancel();
+        }
+
+        private async void MdnsDiscoveryButton_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            _scanCancelSource = new CancellationTokenSource();
+            var token = _scanCancelSource.Token;
+
+            // 탐색 시작 전 Meta Device 패널로 즉시 전환 (미러링 창이 올바른 위치에 뜨도록)
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+
+            ShowSearchOverlay("mDNS 디바이스 탐색 중...");
+
+            try
+            {
+                int foundByMdns = 0;
+                int maxAttempts = 3;
+                int delayBetweenAttemptsMs = 500;
+
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    if (token.IsCancellationRequested) break;
+                    SetSearchProgress(attempt - 1, maxAttempts, $"탐색 중... ({attempt}/{maxAttempts})");
+
+                    try
+                    {
+                        var mdns = await AdbMdnsDiscovery.DiscoverAsync(token, 3000);
+                        if (!token.IsCancellationRequested && mdns.Count > 0)
+                        {
+                            var existingIps = new HashSet<string>(Devices.Select(d => d.Ip.Split(':')[0]), StringComparer.OrdinalIgnoreCase);
+                            var newTargets = mdns.Where(t => !existingIps.Contains(t.ip)).ToList();
+
+                            if (newTargets.Count == 0)
+                            {
+                                SetSearchProgress(attempt, maxAttempts, "신규 기기 없음, 재시도...");
+                                if (attempt < maxAttempts)
+                                    await Task.Delay(delayBetweenAttemptsMs, token);
+                                continue;
+                            }
+
+                            int idx = 0;
+                            foreach (var tuple in newTargets)
+                            {
+                                if (token.IsCancellationRequested) break;
+                                idx++;
+                                SetSearchProgress(idx, newTargets.Count, $"연결 중 ({idx}/{newTargets.Count})...");
+
+                                var addr = $"{tuple.ip}:{tuple.port}";
+                                if (Devices.Any(d => d.Ip == addr)) continue;
+
+                                string output = await Task.Run(() => RunCmdWithRetry($"adb connect {addr}", 1500, 2, 150), token);
+                                if (token.IsCancellationRequested) break;
+
+                                if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                                    output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    string serial = await Task.Run(() =>
+                                        RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1200, 2, 150).Trim(), token);
+
+                                    if (string.IsNullOrWhiteSpace(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                                        serial = "UnknownSerial";
+
+                                    if (serial != "UnknownSerial" && !Devices.Any(d => d.Ip == addr))
+                                    {
+                                        AddDevice(new Device { Serial = serial, Ip = addr, Status = "Connected" });
+                                        Interlocked.Increment(ref foundByMdns);
+                                    }
+                                }
+                            }
+
+                            if (foundByMdns > 0) break;
+                        }
+                    }
+                    catch (OperationCanceledException) { return; }
+
+                    if (attempt < maxAttempts)
+                    {
+                        try { await Task.Delay(delayBetweenAttemptsMs, token); }
+                        catch (TaskCanceledException) { break; }
+                    }
+                }
+
+                if (!token.IsCancellationRequested)
+                {
+                    SetSearchProgress(100, 100, $"탐색 완료 - {foundByMdns}개 발견");
+                    await Task.Delay(800);
+                    ShowMsg($"mDNS 탐색 완료 - 총 발견된 디바이스: {foundByMdns}개");
+                }
+            }
+            finally
+            {
+                HideSearchOverlay();
+            }
+        }
+
+        private async void NetworkScanButton_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+            _scanCancelSource = new CancellationTokenSource();
+            var token = _scanCancelSource.Token;
+
+            var progress = new ProgressWindow(this);
+            progress.Closed += (s, args) => _scanCancelSource?.Cancel();
+            progress.Closed += (s, args) =>
+            {
+                this.Activate();
+                this.IsEnabled = true;
+            };
+
+            progress.Owner = this;
+            progress.ShowInTaskbar = true;
+            progress.Show();
+
+            try
+            {
+                int foundByIpScan = 0;
+
+                // ★ 네트워크 IP 스캔
+                try
+                {
+                    if (!token.IsCancellationRequested)
+                        foundByIpScan = await IpAugmentScanAsync(progress, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                if (!token.IsCancellationRequested)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        ShowMsg($"ADB 연결 성공 - IP스캔: {foundByIpScan}개");
+                    });
+                }
+            }
+            finally
+            {
+                if (progress.IsVisible) progress.Close();
+                this.IsEnabled = true;
+            }
+        }
+
+        // mDNS 이후 보강: 기존 Connected 유지, 신규만 추가
+        private async Task<int> IpAugmentScanAsync(ProgressWindow progress, CancellationToken token)
+        {
+            string localIp = GetLocalIPv4();
+            if (string.IsNullOrEmpty(localIp))
+            {
+                Dispatcher.Invoke(() => ShowMsg("로컈 IP를 감지할 수 없습니다."));
+                return 0;
+            }
+
+            string[] ipParts = localIp.Split('.');
+            string baseIp = $"{ipParts[0]}.{ipParts[1]}.{ipParts[2]}.";
+
+            int ipStart = 2, ipEnd = 254;
+            // 메타퀴스트 ADB 포트 범위: 37000전후 + 5555 + 6555
+            // 전체 포트를 스캔하는 대신 집중 범위 사용으로 속도 향상
+            int portStart = 30000, portEnd = 49999;
+
+            // 이미 연결/추가된 IP:PORT는 제외
+            var existingAddrs = new HashSet<string>(Devices.Select(d => d.Ip), StringComparer.OrdinalIgnoreCase);
+            var existingIps = new HashSet<string>(existingAddrs.Select(a => a.Split(':')[0]), StringComparer.OrdinalIgnoreCase);
+
+            // 1) alive IP 수집
+            List<string> aliveIps = null;
+            try { aliveIps = await FindAliveIpsAsync(baseIp, localIp, ipStart, ipEnd, progress, token); }
+            catch (OperationCanceledException) { return 0; }
+
+            // alive 0이면 /24 전체 저강도 스캔 (샘스위대뱄)
+            if (aliveIps.Count == 0)
+            {
+                aliveIps = Enumerable.Range(ipStart, ipEnd - ipStart + 1)
+                    .Select(i => baseIp + i)
+                    .Where(ip => ip != localIp)
+                    .ToList();
+            }
+
+            // 이미 알고 있는 IP는 제외 (중복 스캔 억제)
+            aliveIps = aliveIps.Where(ip => !existingIps.Contains(ip)).ToList();
+            if (aliveIps.Count == 0) return 0;
+
+            int totalPort = aliveIps.Count * (portEnd - portStart + 1);
+
+            // 2) 포트 스캔
+            List<(string ip, int port)> openPorts = null;
+            try
+            {
+                Debug.WriteLine($"대상 IP 개수: {aliveIps.Count}, 포트 범위: {portStart}-{portEnd}");
+                openPorts = await ScanPortsAsync(
+                    aliveIps, portStart, portEnd,
+                    new Progress<int>(v => progress.SetProgress(v, totalPort)), token);
+            }
+            catch (OperationCanceledException) { return 0; }
+
+            if (token.IsCancellationRequested) return 0;
+
+            // 3) 열린 포트로 ADB 연결 시도 (재시도 2회로 단축해 세마포어 대기 감소)
+            int foundCount = 0;
+            try
+            {
+                await Task.Run(() =>
+                {
+                    Parallel.ForEach(openPorts, new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = token }, target =>
+                    {
+                        if (token.IsCancellationRequested) return;
+
+                        string addr = $"{target.ip}:{target.port}";
+                        if (existingAddrs.Contains(addr)) return;
+
+                        // 재시도 2회로 단축 (기존 5회 → 2회): 세마포어 대기 감소
+                        string output = RunCmdWithRetry($"adb connect {addr}", 1500, 2, 150);
+                        if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                            output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1200, 2, 150).Trim();
+                            if (string.IsNullOrWhiteSpace(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                                serial = "UnknownSerial";
+
+                            if (serial != "UnknownSerial")
+                            {
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (!Devices.Any(d => d.Ip == addr))
+                                    {
+                                        AddDevice(new Device { Serial = serial, Ip = addr, Status = "Connected" });
+                                        Interlocked.Increment(ref foundCount);
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }, token);
+            }
+            catch (OperationCanceledException) { return foundCount; }
+
+            return foundCount;
+        }
+
+        private void DeleteDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is Device device)
+            {
+                // 1) scrcpy 먼저 종료 (임베드 창 즉시 숨기기)
+                StopMirrorForDevice(device);
+
+                // 2) ADB 연결 해제
+                if (device.IsConnected && !string.IsNullOrEmpty(device.Ip))
+                {
+                    try { RunCmdWithRetry($"adb disconnect {device.Ip}", 2000, 2, 200); }
+                    catch { }
+                }
+
+                // 3) 컨렉션에서 제거 (→ UnhookDevice 자동 호출)
+                Devices.Remove(device);
+
+                // 4) 렬더링 쫀 이후 나머지 타일의 임베드 위치 재조정
+                Dispatcher.BeginInvoke(new Action(() => AdjustAllEmbeddedScrcpy()), DispatcherPriority.Loaded);
+            }
+        }
+
+        private void OnClose(object sender, EventArgs e)
+        {
+            // 이벤트 구독 해제 및 타이머 정지
+            try { SettingsService.Instance.Changed -= OnChangeSerialName; } catch { }
+            try { _connectionCheckTimer?.Stop(); } catch { }
+            try { _keyEventTimer?.Stop(); } catch { }
+            try { _batteryCheckTimer?.Stop(); } catch { }
+
+            // 비디오 월 창 닫기
+            if (_multiMirrorWindow != null)
+            {
+                try { _multiMirrorWindow.Close(); } catch { }
+                _multiMirrorWindow = null;
+            }
+
+            // scrcpy 프로세스 종료
+            foreach (var proc in _scrcpy.Values)
+            {
+                try
+                {
+                    if (!proc.HasExited)
+                    {
+                        proc.Kill();
+                    }
+                }
+                catch { }
+                finally
+                {
+                    proc.Dispose();
+                }
+            }
+            _scrcpy.Clear();
+
+            // scrcpy.exe 종료
+            try
+            {
+                foreach (var scrcpyProc in Process.GetProcessesByName("scrcpy"))
+                {
+                    scrcpyProc.Kill();
+                    scrcpyProc.WaitForExit();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"scrcpy 종료 중 오류 발생: {ex.Message}");
+            }
+
+            // 모든 adb.exe 프로세스 종료
+            try
+            {
+                foreach (var adbProc in Process.GetProcessesByName("adb"))
+                {
+                    adbProc.Kill();
+                    adbProc.WaitForExit();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"adb 종료 중 오류 발생: {ex.Message}");
+            }
+
+            // adb kill-server 명령 실행
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = _adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(psi))
+                {
+                    process.WaitForExit(2000);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"adb kill-server 실행 중 오류 발생: {ex.Message}");
+            }
+        }
+
+        private async Task<List<string>> FindAliveIpsAsync(string baseIp, string localIp, int ipStart, int ipEnd, ProgressWindow progress, CancellationToken token)
+        {
+            var aliveIps = new ConcurrentBag<string>();
+            var allIps = Enumerable.Range(ipStart, ipEnd - ipStart + 1).Select(i => baseIp + i).ToList();
+            int totalIp = allIps.Count;
+            int done = 0;
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        Parallel.ForEach(allIps, new ParallelOptions { MaxDegreeOfParallelism = 128, CancellationToken = token }, ip =>
+                        {
+                            if (token.IsCancellationRequested) return;
+                            try
+                            {
+                                using var ping = new Ping();
+                                var reply = ping.Send(ip, 200); // 300→200ms 단축
+                                if (reply.Status == IPStatus.Success && ip != localIp)
+                                    aliveIps.Add(ip);
+                            }
+                            catch { }
+
+                            int d = Interlocked.Increment(ref done);
+                            if (!token.IsCancellationRequested && (d % 20 == 0 || d == totalIp))
+                                Dispatcher.BeginInvoke(() => progress.SetProgress(d, totalIp));
+                        });
+                    }
+                    catch (OperationCanceledException) { }
+                });
+            }
+            catch (OperationCanceledException) { }
+            return aliveIps.ToList();
+        }
+
+        public async Task<List<(string ip, int port)>> ScanPortsAsync(
+            List<string> ips, int portStart, int portEnd, IProgress<int> progress = null, CancellationToken token = default)
+        {
+            var openPorts = new ConcurrentBag<(string, int)>();
+            int maxParallel = 400;
+            var throttler = new SemaphoreSlim(maxParallel);
+            var tasks = new List<Task>();
+            int completed = 0, totalPort = ips.Count * (portEnd - portStart + 1);
+            int reportInterval = Math.Max(totalPort / 100, 1);
+
+            try
+            {
+                // 가능성 높은 5555 선탐색
+                foreach (var ip in ips)
+                {
+                    if (token.IsCancellationRequested) break;
+                    await throttler.WaitAsync(token);
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            if (await TryConnectPort(ip, 5555, token))
+                                openPorts.Add((ip, 5555));
+                        }
+                        catch { }
+                        finally
+                        {
+                            int done = Interlocked.Increment(ref completed);
+                            if (done % reportInterval == 0 || done == totalPort)
+                                progress?.Report(done);
+                            throttler.Release();
+                        }
+                    }, token));
+                }
+
+                // 범위 스캔
+                foreach (var ip in ips)
+                {
+                    for (int port = portStart; port <= portEnd; port++)
+                    {
+                        if (port == 5555) continue;
+                        if (token.IsCancellationRequested) break;
+                        await throttler.WaitAsync(token);
+                        var t = ScanPortAsync(ip, port, openPorts, throttler, () =>
+                        {
+                            int done = Interlocked.Increment(ref completed);
+                            if (done % reportInterval == 0 || done == totalPort)
+                                progress?.Report(done);
+                        }, token);
+                        tasks.Add(t);
+                    }
+                }
+                await Task.WhenAll(tasks);
+            }
+            catch (OperationCanceledException) { }
+            return openPorts.ToList();
+        }
+
+        private async Task ScanPortAsync(string ip, int port, ConcurrentBag<(string, int)> openPorts, SemaphoreSlim throttler, Action onComplete, CancellationToken token)
+        {
+            try
+            {
+                if (token.IsCancellationRequested) return;
+                if (await TryConnectPort(ip, port, token))
+                    openPorts.Add((ip, port));
+            }
+            catch { }
+            finally
+            {
+                onComplete?.Invoke();
+                throttler.Release();
+            }
+        }
+
+        private static async Task<bool> TryConnectPort(string ip, int port, CancellationToken token)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                var connectTask = client.ConnectAsync(ip, port);
+                var timeoutTask = Task.Delay(200, token); // 150→200ms: 포트 탄지 실패륙 감소
+                var completedTask = await Task.WhenAny(connectTask, timeoutTask);
+                return completedTask == connectTask && client.Connected;
+            }
+            catch { return false; }
+        }
+
+        private bool TryGetPkgIndex(object sender, out int index)
+        {
+            index = -1;
+            var button = sender as Button;
+            if (button == null || !int.TryParse(button.Tag as string, out index) || index < 0 || index >= _pkgNames.Length)
+            {
+                ShowMsg("패키지명이 올바르지 않습니다.");
+                return false;
+            }
+            return true;
+        }
+
+        private void ShowMsg(string msg)
+        {
+            if (_isShuttingDown) return; // 종료 중에는 표시하지 않음
+
+            void ShowInternal()
+            {
+                try
+                {
+                    if (this.IsLoaded && this.IsVisible)
+                        MessageBox.Show(this, msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    else
+                        MessageBox.Show(msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"MessageBox 표시 중 오류: {ex.Message}");
+                }
+            }
+
+            if (Dispatcher.CheckAccess()) ShowInternal();
+            else Dispatcher.BeginInvoke((Action)ShowInternal);
+        }
+
+        private void EnsureAdbRunning()
+        {
+            try
+            {
+                if (!File.Exists(_adbPath))
+                {
+                    ShowMsg($"ADB 실행 파일을 찾을 수 없습니다: {_adbPath}");
+                    return;
+                }
+
+                // 기존 ADB 서버 종료
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = _adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }).WaitForExit();
+
+                // ADB 서버 시작
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = _adbPath,
+                    Arguments = "start-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex)
+            {
+                ShowMsg("ADB 실행 실패: " + ex.Message);
+            }
+        }
+
+        // ADB 동시성: 16대 scrcpy + 배터리/연결 체크 타이머를 동시에 처리할 수 있도록 상향
+        // scrcpy 자체는 ADB 세마포어를 점유하지 않으므로 타이머 쿼리 전용 슬롯 확보가 목적
+        private static readonly int AdbMaxConcurrency = Math.Min(20, Math.Max(4, Environment.ProcessorCount * 2));
+        private static readonly SemaphoreSlim _adbSemaphore = new(AdbMaxConcurrency, AdbMaxConcurrency);
+        // adbPath를 static 필드로 캐싱하여 RunCmd 호출마다 Path.Combine 연산 반복을 제거
+        private static readonly string _adbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "adb.exe");
+
+        public string RunCmd(string cmd, int timeoutMs)
+        {
+            _adbSemaphore.Wait();
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError  = true,
+                    UseShellExecute        = false,
+                    CreateNoWindow         = true
+                };
+
+                if (cmd.StartsWith("adb", StringComparison.OrdinalIgnoreCase))
+                {
+                    psi.FileName  = _adbPath;
+                    psi.Arguments = cmd.Length > 3 ? cmd.Substring(3).TrimStart() : string.Empty;
+                }
+                else
+                {
+                    psi.FileName  = "cmd.exe";
+                    psi.Arguments = "/c " + cmd;
+                }
+
+                using var p = new Process { StartInfo = psi };
+                p.Start();
+
+                // ReadToEnd를 WaitForExit 전에 호출해야 stdout/stderr 버퍼 데드락을 방지한다.
+                // 두 스트림을 동시에 읽기 위해 stderr는 별도 Task로 처리한다.
+                var stdoutTask = p.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
+
+                bool exited = p.WaitForExit(timeoutMs);
+                if (!exited)
+                {
+                    try { p.Kill(); } catch { }
+                    return "Timeout";
+                }
+
+                // WaitForExit(timeout) 후 async 스트림 완료 대기 (이미 프로세스 종료됨이므로 즉시 완료)
+                string stdout = stdoutTask.GetAwaiter().GetResult();
+                string stderr = stderrTask.GetAwaiter().GetResult();
+                return stdout + stderr;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+            finally
+            {
+                _adbSemaphore.Release();
+            }
+        }
+
+        public string GetLocalIPv4()
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily != AddressFamily.InterNetwork) continue;
+                var s = ip.ToString();
+                if (s.StartsWith("192.") || s.StartsWith("10.") || s.StartsWith("172."))
+                    return s;
+            }
+            return null;
+        }
+
+        public string RunCmdWithRetry(string cmd, int timeoutMs, int maxRetry = 5, int retryDelayMs = 300)
+        {
+            for (int attempt = 1; attempt <= maxRetry; attempt++)
+            {
+                string result = RunCmd(cmd, timeoutMs);
+                // 'error'만으로 재시도하면 정상 출력(예: 'already connected')도 오탐됨
+                // Timeout / adb 프로세스 자체 오류 / 빈 응답만 재시도 트리거로 사용
+                if (!string.IsNullOrEmpty(result) &&
+                    !result.Contains("Timeout", StringComparison.OrdinalIgnoreCase) &&
+                    !result.StartsWith("adb: error:", StringComparison.OrdinalIgnoreCase) &&
+                    !result.StartsWith("adb.exe", StringComparison.OrdinalIgnoreCase))
+                    return result;
+                if (attempt < maxRetry)
+                    Thread.Sleep(retryDelayMs);
+            }
+            return $"실패: {cmd}";
+        }
+
+        private void DeviceGrid_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
+
+        private void RemoveDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                return;
+            }
+
+            try
+            {
+                if ((sender as Button)?.DataContext is Device device)
+                {
+                    var target = Devices.FirstOrDefault(d => d.Ip == device.Ip);
+                    if (target != null)
+                    {
+                        // scrcpy 먼저 종료 (임베드 창 즉시 숨기기)
+                        StopMirrorForDevice(target);
+
+                        Devices.Remove(target);
+                        ShowMsg($"{device.Name} 기기가 목록에서 삭제되었습니다.");
+
+                        // 렌더링 후 나머지 타일 임베드 위치 재조정
+                        Dispatcher.BeginInvoke(new Action(() => AdjustAllEmbeddedScrcpy()), DispatcherPriority.Loaded);
+                    }
+                    else
+                    {
+                        ShowMsg("기기를 찾을 수 없습니다.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMsg("기기 삭제 중 오류가 발생했습니다: " + ex.Message);
+            }
+        }
+
+        private void AddDeviceButton_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                return;
+            }
+
+            AddDeviceWindow addDeviceWindow = new AddDeviceWindow(this);
+            addDeviceWindow.Owner = this;
+            addDeviceWindow.ShowInTaskbar = true;
+            addDeviceWindow.Show();
+        }
+
+        public async void AddDevice(string name, string ip)
+        {
+            this.IsEnabled = false;
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                this.IsEnabled = true;
+                return;
+            }
+
+            // 사용자가 IP가 아닌 시리얼/텍스트를 입력한 경우 추가하지 않음
+            if (!IsValidIpEndpoint(ip))
+            {
+                ShowMsg("IP 형식이 올바르지 않습니다. 예) 192.168.0.10:5555");
+                this.IsEnabled = true;
+                return;
+            }
+
+            if (Devices.Any(d => d.Ip.Split(':')[0] == ip))
+            {
+                ShowMsg($"{ip} 기기는 이미 연결되어 있습니다.");
+                this.IsEnabled = true;
+                return;
+            }
+
+            int portStart = 30000, portEnd = 49999;
+            int totalPort = portEnd - portStart + 1;
+            var progress = new ProgressWindow(this);
+            progress.Owner = this;
+            progress.ShowInTaskbar = true;
+            progress.Show();
+
+            try
+            {
+                var openPorts = await ScanPortsAsync(
+                    new List<string> { ip }, portStart, portEnd,
+                    new Progress<int>((done) => progress.SetProgress(done, totalPort)));
+
+                bool connected = false;
+                foreach (var (openIp, port) in openPorts)
+                {
+                    string addr = $"{openIp}:{port}";
+                    string output = RunCmdWithRetry($"adb connect {addr}", 1200, 3, 200);
+
+                    if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                        output.Contains("already connected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 실제 시리얼 획득
+                        string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1200, 3, 200).Trim();
+                        if (string.IsNullOrWhiteSpace(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                            serial = "UnknownSerial";
+
+                        // USB(비-IP) 연결된 동일 시리얼이 존재하면 추가하지 않음
+                        var nonIpSerials = GetNonIpAdbSerials();
+                        if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) && nonIpSerials.Contains(serial))
+                        {
+                            ShowMsg("해당 기기는 USB(비-IP)로 ADB에 연결되어 있어 목록에 추가하지 않습니다.");
+                            connected = true; // 연결은 되었지만 목록 추가는 하지 않음
+                            break;
+                        }
+
+                        connected = true;
+                        AddDevice(new Device { Serial = serial, Ip = addr, Status = "Connected" });
+                        ShowMsg($"{name} 기기가 성공적으로 연결되었습니다.\nIP: {addr}");
+                        break;
+                    }
+                }
+
+                if (!connected) ShowMsg($"{name} 기기 연결 실패: 열려있는 포트가 없거나 연결에 실패했습니다.");
+            }
+            catch (Exception ex)
+            {
+                ShowMsg("기기 추가 중 오류가 발생했습니다: " + ex.Message);
+            }
+            finally
+            {
+                progress.Close();
+                this.IsEnabled = true;
+            }
+        }
+
+        private void AddDevice(Device device)
+        {
+            if (device == null || string.IsNullOrEmpty(device.Ip)) { ShowMsg("유효하지 않은 기기 정보입니다."); return; }
+            if (!IsValidIpEndpoint(device.Ip)) return;
+
+            // 같은 시리얼이 이미 컬렉션에 있으면 추가하지 않음 (UnknownSerial 제외)
+            if (!string.IsNullOrWhiteSpace(device.Serial) &&
+                !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
+                Devices.Any(d => string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            // GetNonIpAdbSerials()는 adb devices를 다시 실행하므로 한 번만 호출해 재사용
+            if (!string.IsNullOrWhiteSpace(device.Serial) &&
+                !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase))
+            {
+                var nonIpSerials = GetNonIpAdbSerials();
+                if (nonIpSerials.Contains(device.Serial)) return;
+            }
+
+            if (Devices.Any(d => d.Ip == device.Ip)) { ShowMsg($"{device.Name} 기기는 이미 목록에 있습니다."); return; }
+            if (device.Status != "Connected") { ShowMsg($"{device.Name} 기기가 연결되어 있지 않습니다."); return; }
+
+            device.BatteryLevel = GetBatteryLevel(device.Ip);
+            device.Name = _serialNameDic.TryGetValue(device.Serial, out string name) ? name : device.Serial;
+
+            Devices.Add(device);
+            if (!_scrcpy.ContainsKey(device.Ip))
+                AddDeviceEvent?.Invoke(device);
+        }
+
+        public int GetBatteryLevel(string deviceIp)
+        {
+            int maxRetry = 3, retryDelayMs = 300;
+            for (int attempt = 1; attempt <= maxRetry; attempt++)
+            {
+                try
+                {
+                    string output = RunCmd($"adb -s {deviceIp} shell dumpsys battery", 2000);
+                    var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
+                    {
+                        if (line.Trim().StartsWith("level:"))
+                        {
+                            var parts = line.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length == 2 && int.TryParse(parts[1].Trim(), out int batteryLevel))
+                                return batteryLevel;
+                        }
+                    }
+                }
+                catch (Exception ex) { Debug.WriteLine($"배터리 잔량 가져오기 실패 (시도 {attempt}/{maxRetry}): {ex.Message}"); }
+                if (attempt < maxRetry) Thread.Sleep(retryDelayMs);
+            }
+            return -1;
+        }
+
+        // ====================== 자동 미러링 (ItemsControl 타일 안) ======================
+        private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems != null)
+            {
+                foreach (Device d in e.NewItems)
+                {
+                    HookDevice(d);
+                    lock (_missLock) _missCounts[d.Ip] = 0;
+                }
+            }
+            if (e.OldItems != null)
+            {
+                foreach (Device d in e.OldItems)
+                {
+                    UnhookDevice(d);
+                    lock (_missLock) _missCounts.Remove(d.Ip);
+                }
+            }
+        }
+
+        private void ItemContainerGenerator_StatusChanged(object? sender, EventArgs e)
+        {
+            if (Tiles.ItemContainerGenerator.Status != GeneratorStatus.ContainersGenerated) return;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                foreach (var entry in _scrcpy)
+                {
+                    var device = Devices.FirstOrDefault(d => d.Ip == entry.Key && d.IsConnected);
+                    if (device == null) continue;
+                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                    if (host != null) ScrcpyEmbedder.Adjust(entry.Value, host, this);
+                }
+            }), DispatcherPriority.Loaded);
+        }
+
+        private void HookDevice(Device d)
+        {
+            d.PropertyChanged += Device_PropertyChanged;
+            if (d.IsConnected) Dispatcher.BeginInvoke(new Action(() => StartMirrorForDevice(d)));
+        }
+
+        private void UnhookDevice(Device d)
+        {
+            d.PropertyChanged -= Device_PropertyChanged;
+            StopMirrorForDevice(d);
+        }
+
+        private void Device_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is not Device d) return;
+            if (e.PropertyName == nameof(Device.Status) || e.PropertyName == nameof(Device.IsConnected))
+            {
+                if (d.IsConnected) StartMirrorForDevice(d);
+                else StopMirrorForDevice(d);
+            }
+        }
+
+        private readonly object _mirrorLock = new();
+
+        // ★ 수정: IP별 중복 실행 방지 플래그(_mirrorStarting)로 async void 재진입 차단
+        private async void StartMirrorForDevice(Device device)
+        {
+            lock (_mirrorLock)
+            {
+                // 이미 이 IP에 대해 미러링 시작 중이면 무시
+                if (_mirrorStarting.Contains(device.Ip)) return;
+                _mirrorStarting.Add(device.Ip);
+
+                // 기존 프로세스가 있으면 먼저 종료
+                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
+                {
+                    try { old.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
+                }
+            }
+
+            try
+            {
+                // host가 null이면 레이아웃이 아직 확정되지 않은 것 → 최대 5회 재시도
+                Border host = null;
+                for (int i = 0; i < 5; i++)
+                {
+                    host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                    if (host != null && host.ActualWidth > 1 && host.ActualHeight > 1) break;
+                    await Dispatcher.Yield(DispatcherPriority.Loaded);
+                    await Task.Delay(100); // 레이아웃 안정화 대기
+                }
+                if (host == null) return;
+
+                var proc = await StartMirroringWithSemaphoreAsync(device,
+                    (int)Math.Max(1, host.ActualWidth),
+                    (int)Math.Max(1, host.ActualHeight),
+                    CancellationToken.None);
+                if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) return;
+
+                lock (_mirrorLock)
+                {
+                    // await 구간에 다른 프로세스가 이미 등록된 경우 새 것을 종료
+                    if (_scrcpy.TryGetValue(device.Ip, out var existing) && existing != proc)
+                    {
+                        try { if (!proc.HasExited) proc.Kill(); } catch { }
+                        return;
+                    }
+                    _scrcpy[device.Ip] = proc;
+                }
+
+                proc.EnableRaisingEvents = true;
+                proc.Exited += (s2, a2) => { lock (_mirrorLock) { _scrcpy.Remove(device.Ip); } };
+
+                // Win32 창이 완전히 렌더링될 때까지 짧게 대기 후 임베드
+                // 서치 오버레이가 표시 중이면 Attach를 억제하고 pendingAttach에 등록
+                // (HideSearchOverlay에서 Attach 처리)
+                await Task.Delay(80);
+                // 항상 Attach(SetParent+스타일 제거)를 먼저 수행해 임베드 상태로 만든다.
+                // 스캔 중이거나 MetaDevice 패널이 아닌 경우에는 Attach 직후 창을 숨겨둔다.
+                // → MetaDevice로 돌아올 때 ShowAll 한 번으로 정상 표시됨
+                ScrcpyEmbedder.Attach(proc, host, this);
+                if (_isScanning || PanelMetaDevice.Visibility != Visibility.Visible)
+                {
+                    ScrcpyEmbedder.HideWindow(proc.MainWindowHandle);
+                    if (_isScanning)
+                        lock (_mirrorLock) { _pendingAttach.Add(device.Ip); }
+                }
+            }
+            finally
+            {
+                // 반드시 플래그 해제
+                lock (_mirrorLock) { _mirrorStarting.Remove(device.Ip); }
+            }
+        }
+
+        private void StopMirrorForDevice(Device device)
+        {
+            lock (_mirrorLock)
+            {
+                if (_scrcpy.TryGetValue(device.Ip, out var p))
+                {
+                    try
+                    {
+                        var hwnd = p.MainWindowHandle;
+                        // Kill 전에 Win32 창 먼저 숨기기 — 입베드된 창이 화면에 남아 있는 문제 해결
+                        if (hwnd != IntPtr.Zero)
+                            ScrcpyEmbedder.HideWindow(hwnd);
+                        if (!p.HasExited) p.Kill();
+                    }
+                    catch { }
+                    _scrcpy.Remove(device.Ip);
+                }
+            }
+        }
+
+        // ★ 수정: Window_SizeChanged에서 직접 Adjust 대신 디바운스 타이머를 트리거
+        // → 레이아웃이 완전히 재계산(PART_MirrorHost ActualWidth/Height 갱신)된 뒤 Adjust 실행
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (e.PreviousSize == e.NewSize) return;
+
+            // 크기 변화가 있으면 무조건 즉시 숨김
+            // → 디바운스 300ms 동안 scrcpy 창이 이전 크기/위치로 남아 잔상이 생기는 문제 해결
+            // → 확대 시에도 빈 영역에 이전 창이 잠깐 노출되는 현상 동일하게 방지
+            ScrcpyEmbedder.HideAll(_scrcpy.Values);
+
+            // 디바운스 완료 후 Adjust + ShowAll 로 재표시
+            _tilesAdjustDebounce.Stop();
+            _tilesAdjustDebounce.Start();
+        }
+
+        // ========== 안정화된 FindInItemTemplate ==========
+
+        public T FindInItemTemplate<T>(ItemsControl itemsControl, object item, string elementName)
+            where T : FrameworkElement
+        {
+            var container = itemsControl.ItemContainerGenerator.ContainerFromItem(item) as FrameworkElement;
+            if (container == null)
+            {
+                // UpdateLayout은 전체 레이아웃 트리를 강제 재계산하므로 꼭 필요할 때만 호출
+                if (itemsControl.ItemContainerGenerator.Status == System.Windows.Controls.Primitives.GeneratorStatus.ContainersGenerated)
+                    itemsControl.UpdateLayout();
+                container = itemsControl.ItemContainerGenerator.ContainerFromItem(item) as FrameworkElement;
+                if (container == null) return null;
+            }
+
+            container.ApplyTemplate();
+
+            if (container is ContentPresenter cp)
+            {
+                var tpl = cp.ContentTemplate ?? itemsControl.ItemTemplate;
+                if (tpl != null)
+                {
+                    try
+                    {
+                        var el = tpl.FindName(elementName, cp) as T;
+                        if (el != null) return el;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 템플릿 미적용 예외 → fallback
+                    }
+                }
+            }
+
+            return FindVisualChildByName<T>(container, elementName);
+        }
+
+        private static T FindVisualChildByName<T>(DependencyObject parent, string name)
+            where T : FrameworkElement
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T fe && fe.Name == name)
+                    return fe;
+
+                var result = FindVisualChildByName<T>(child, name);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        // =============== 타일 내부 수동 버튼 ===============
+        private async void MirrorTile_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as Button)?.CommandParameter is not Device device) return;
+            if (!device.IsConnected) { MessageBox.Show("연결되지 않았습니다."); return; }
+
+            var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+            if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); return; }
+
+            if (_scrcpy.TryGetValue(device.Ip, out var running) && !running.HasExited)
+            {
+                ScrcpyEmbedder.Adjust(running, host, this);
+                return;
+            }
+
+            var proc = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            if (proc == null || proc.HasExited) { MessageBox.Show("미러링 시작 실패"); return; }
+
+            lock (_mirrorLock)
+            {
+                _scrcpy[device.Ip] = proc;
+            }
+            proc.EnableRaisingEvents = true;
+            proc.Exited += (s2, a2) => { lock (_mirrorLock) { _scrcpy.Remove(device.Ip); } };
+            // 항상 Attach 후, MetaDevice 패널이 아니면 숨겨둠
+            ScrcpyEmbedder.Attach(proc, host, this);
+            if (PanelMetaDevice.Visibility != Visibility.Visible)
+                ScrcpyEmbedder.HideWindow(proc.MainWindowHandle);
+        }
+
+        private async void RefreshTile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                MessageBox.Show("이미 새로고침 중입니다.");
+                return;
+            }
+            _isRefreshing = true;
+            if ((sender as Button)?.CommandParameter is not Device device) { _isRefreshing = false; return; }
+
+            // 기존 scrcpy 프로세스가 있으면 모두 종료
+            lock (_mirrorLock)
+            {
+                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
+                {
+                    try { old.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
+                }
+            }
+
+            var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+            if (host == null) { MessageBox.Show("미러 호스트를 찾지 못했습니다."); _isRefreshing = false; return; }
+
+            var procNew = await StartMirroringWithSemaphoreAsync(device, (int)Math.Max(1, host.ActualWidth * 0.9f), (int)Math.Max(1, host.ActualHeight * 0.9f), CancellationToken.None);
+            if (procNew == null || procNew.HasExited) { MessageBox.Show("미러링 시작 실패"); _isRefreshing = false; return; }
+
+            lock (_mirrorLock)
+            {
+                _scrcpy[device.Ip] = procNew;
+            }
+            procNew.EnableRaisingEvents = true;
+            procNew.Exited += (s2, a2) => { lock (_mirrorLock) { _scrcpy.Remove(device.Ip); } };
+            // 항상 Attach 후, MetaDevice 패널이 아니면 숨겨둠
+            ScrcpyEmbedder.Attach(procNew, host, this);
+            if (PanelMetaDevice.Visibility != Visibility.Visible)
+                ScrcpyEmbedder.HideWindow(procNew.MainWindowHandle);
+            _isRefreshing = false;
+        }
+
+        private void StopTile_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as Button)?.CommandParameter is not Device device) return;
+            StopMirrorForDevice(device);
+        }
+
+        private bool _isRefreshing = false;
+
+        //====================== 디바이스 윈도우 영역 ======================
+
+        private DeviceWindow _deviceWindow;
+        private void OpenDeviceWindow(Device device)
+        {
+            if (device == null) return;
+
+            // 1) 기존 창이 있으면 닫기
+            if (_deviceWindow != null)
+            {
+                try { _deviceWindow.Closed -= DeviceWindow_Closed; } catch { }
+                try { _deviceWindow.Close(); } catch { }
+                _deviceWindow = null;
+            }
+
+            // 2) 새 창 열기
+            var win = new DeviceWindow(this, device) { Owner = this };
+            _deviceWindow = win;
+            win.Closed += DeviceWindow_Closed;
+            win.Show();
+        }
+
+        private void DeviceWindow_Closed(object? sender, EventArgs e)
+        {
+            // 빠르게 연달아 열었을 때 새 인스턴스를 건드리지 않게 보호
+            if (ReferenceEquals(sender, _deviceWindow))
+                _deviceWindow = null;
+        }
+
+        // 오버레이 버튼 클릭(항상 동작)
+        private void OpenDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is Device device)
+                OpenDeviceWindow(device);
+        }
+
+        //====================== 상단 영역 ======================
+        // 패널 전환
+        private static readonly SolidColorBrush _sideActive = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F5A623"));
+        private static readonly SolidColorBrush _sideNormal = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#555555"));
+
+        private void SetSideButtonActive(Button active)
+        {
+            // 모든 버튼 인라인 템플릿 → Background 직접 변경
+            BtnMetaDevice.Background   = ReferenceEquals(active, BtnMetaDevice)   ? _sideActive : _sideNormal;
+            BtnXrExperience.Background = ReferenceEquals(active, BtnXrExperience) ? _sideActive : _sideNormal;
+            BtnXrCoding.Background     = ReferenceEquals(active, BtnXrCoding)     ? _sideActive : _sideNormal;
+            BtnXrEnglish.Background    = ReferenceEquals(active, BtnXrEnglish)    ? _sideActive : _sideNormal;
+        }
+
+        private void BtnMetaDevice_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+            ScrcpyEmbedder.ShowAll(_scrcpy.Values);
+        }
+
+        private void BtnXrExperience_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Visible;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnXrExperience);
+            ScrcpyEmbedder.HideAll(_scrcpy.Values);
+        }
+
+        private void BtnXrCoding_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Visible;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnXrCoding);
+            ScrcpyEmbedder.HideAll(_scrcpy.Values);
+        }
+
+        private void BtnXrEnglish_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Visible;
+            SetSideButtonActive(BtnXrEnglish);
+            ScrcpyEmbedder.HideAll(_scrcpy.Values);
+        }
+
+        private void OpenSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var settingsWin = new SettingWindow(SettingsService.Instance, Devices);
+            settingsWin.Owner = this;
+            settingsWin.ShowDialog();
+        }
+
+        // ====================== 공간 설정 초기화 ======================
+        // Meta Quest OS v62+ 기준 실제 동작하는 방법 순서대로 시도:
+        //
+        // [방법 A] Guardian 데이터 파일 직접 삭제 (루트 불필요, ADB shell 권한으로 가능)
+        //   - /data/data/com.oculus.guardian  (앱 데이터)
+        //   - /sdcard/Android/data/com.oculus.guardian  (외부 저장소)
+        //   삭제 후 com.oculus.guardian 프로세스를 kill → 재시작 시 빈 guardian으로 초기화됨
+        //
+        // [방법 B] Guardian 앱 데이터 클리어 (pm clear)
+        //   adb shell pm clear com.oculus.guardian
+        //   → 앱 데이터/캐시 전체 삭제, 공간 경계 초기화됨
+        //
+        // [방법 C] 시스템 재부팅
+        //   adb shell reboot
+        //   → 가장 확실, 단 재연결 필요
+        //
+        // 버튼 클릭 시 A → B 순서로 시도, 실패 시 C(재부팅) 여부를 사용자에게 묻는다
+        private async void ResetGuardianBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            var connected = Devices.Where(d => d.Status == "Connected").ToList();
+            if (connected.Count == 0) { ShowMsg("연결된 기기가 없습니다."); return; }
+
+            // ── 우선: ResetRoomDataApp 실행 (전용 초기화 앱) ──
+            // 설치된 기기에서는 앱이 직접 방 스캔 데이터를 초기화해줌
+            const string resetAppPkg      = "com.StoryWing.ResetRoomDataApp";
+            const string resetAppActivity = "com.unity3d.player.UnityPlayerActivity";
+
+            var appResults = new ConcurrentBag<(string name, bool launched)>();
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                {
+                    string result = RunCmd(
+                        $"adb -s {device.Ip} shell am start -n {resetAppPkg}/{resetAppActivity}", 2000);
+                    bool ok = !result.Contains("Error",          StringComparison.OrdinalIgnoreCase)
+                           && !result.Contains("does not exist", StringComparison.OrdinalIgnoreCase)
+                           && !result.Contains("Timeout",        StringComparison.OrdinalIgnoreCase);
+                    appResults.Add((device.Name, ok));
+                });
+            });
+
+            int appSuccessCount = appResults.Count(r => r.launched);
+            int appFailCount    = appResults.Count(r => !r.launched);
+
+            // 모든 기기에서 앱 실행 성공 → 추가 작업 없이 완료
+            if (appFailCount == 0)
+            {
+                ShowMsg($"✅ ResetRoomDataApp 실행 완료 ({appSuccessCount}개 기기)\n\n" +
+                        "헤드셋을 착용하면 초기화 화면이 나타납니다.");
+                return;
+            }
+
+            // 일부 또는 전체 실패 → 결과 표시 후 ADB 직접 초기화 방법 선택
+            string appSummary = string.Join("\n", appResults
+                .OrderBy(r => r.name)
+                .Select(r => $"  {(r.launched ? "✅" : "➖(미설치)")} {r.name}"));
+
+            var choice = MessageBox.Show(
+                $"ResetRoomDataApp 실행 결과:\n{appSummary}\n\n" +
+                $"성공: {appSuccessCount}개  /  미설치(실패): {appFailCount}개\n\n" +
+                "미설치 기기에 ADB로 직접 Guardian 데이터를 초기화합니다.\n\n" +
+                "[예]  Guardian 데이터 파일 삭제 + 재시작 (권장)\n" +
+                "[아니오]  Guardian 앱 데이터 전체 초기화 (pm clear)\n" +
+                "[취소]  건너뜀",
+                "공간 설정 초기화",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+
+            if (choice == MessageBoxResult.Cancel) return;
+
+            // 앱이 실행되지 않은 기기만 ADB 직접 초기화 대상으로 한정
+            connected = connected
+                .Where(d => appResults.Any(r => r.name == d.Name && !r.launched))
+                .ToList();
+            if (connected.Count == 0) { ShowMsg("추가로 처리할 기기가 없습니다."); return; }
+
+            bool useFileDelete = (choice == MessageBoxResult.Yes);
+
+            var results = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                {
+                    string log;
+                    bool success;
+
+                    if (useFileDelete)
+                    {
+                        // ── 방법 A: Guardian 데이터 파일 삭제 + force-stop ──
+                        // 1) 외부 저장소 경계 데이터 삭제 (ADB shell 권한으로 가능)
+                        string r1 = RunCmd($"adb -s {device.Ip} shell rm -rf /sdcard/Android/data/com.oculus.guardian", 3000);
+                        // 2) Guardian 프로세스 강제 종료 → OS가 재시작하며 빈 경계로 초기화
+                        //    (run-as는 릴리즈 앱에 사용 불가하므로 제거)
+                        string r3 = RunCmd($"adb -s {device.Ip} shell am force-stop com.oculus.guardian", 3000);
+
+                        // rm은 삭제 대상 없으면 빈 문자열 반환 → 오류 없으면 성공으로 판정
+                        bool rmOk  = !r1.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) &&
+                                     !r1.Contains("Timeout",           StringComparison.OrdinalIgnoreCase);
+                        bool stopOk = !r3.Contains("Error",   StringComparison.OrdinalIgnoreCase) &&
+                                      !r3.Contains("Timeout", StringComparison.OrdinalIgnoreCase);
+                        success = rmOk && stopOk;
+
+                        log = $"[{device.Name}] {(success ? "✅ 완료" : "⚠️ 확인필요")}\n" +
+                              $"  rm sdcard : {(string.IsNullOrWhiteSpace(r1) ? "(삭제 완료 또는 대상 없음)" : r1.Trim())}\n" +
+                              $"  force-stop: {(string.IsNullOrWhiteSpace(r3) ? "(완료)" : r3.Trim())}";
+                    }
+                    else
+                    {
+                        // ── 방법 B: pm clear (앱 데이터 전체 초기화) ──
+                        // Guardian 앱의 모든 데이터(설정, 경계 파일, 캐시)를 삭제
+                        // Meta OS v50+ 에서 shell 권한으로 실행 가능
+                        string r1 = RunCmd($"adb -s {device.Ip} shell pm clear com.oculus.guardian", 5000);
+                        // VR Shell도 함께 초기화하면 공간 인식이 더 확실히 리셋됨
+                        string r2 = RunCmd($"adb -s {device.Ip} shell pm clear com.oculus.vrshell", 3000);
+
+                        success = r1.Contains("Success", StringComparison.OrdinalIgnoreCase);
+
+                        log = $"[{device.Name}] {(success ? "✅ 완료" : "⚠️ 확인필요")}\n" +
+                              $"  pm clear guardian: {r1.Trim()}\n" +
+                              $"  pm clear vrshell : {r2.Trim()}";
+                    }
+
+                    results.Add(log);
+                });
+            });
+
+            string summary = string.Join("\n\n", results.OrderBy(s => s));
+
+            bool anyFailed = results.Any(r => r.Contains("⚠️"));
+            if (anyFailed)
+            {
+                var reboot = MessageBox.Show(
+                    $"일부 기기에서 초기화가 불확실합니다.\n\n{summary}\n\n" +
+                    "재부팅으로 확실히 초기화하시겠습니까?\n(재부팅 후 기기가 재연결될 때까지 잠시 기다려야 합니다)",
+                    "재부팅 확인",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (reboot == MessageBoxResult.Yes)
+                {
+                    await Task.Run(() =>
+                    {
+                        Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                            RunCmd($"adb -s {device.Ip} shell reboot", 3000));
+                    });
+                    ShowMsg("재부팅 명령을 전송했습니다.\n기기가 재시작되면 Search Device로 다시 연결하세요.");
+                    return;
+                }
+            }
+
+            ShowMsg($"=== 공간 설정 초기화 결과 ===\n\n{summary}\n\n" +
+                    "헤드셋을 착용하면 Guardian 설정 화면이 나타납니다.");
+        }
+
+        // ====================== MR 공간 데이터 초기화 ======================
+        // Meta Quest MR 공간 데이터 저장 위치 (OS v62~v72+ 기준):
+        //
+        //   [pm clear — ADB shell 권한으로 가능, 내부+외부 데이터 모두 삭제]
+        //   com.oculus.guardian          ← 경계(boundary) 데이터 (구버전/신버전 공통)
+        //   com.oculus.scene             ← Scene/Room 메시 데이터 (OS v50~v65)
+        //   com.meta.scene               ← Scene/Room 메시 데이터 (OS v62+, 패키지명 변경)
+        //   com.oculus.spatialanchor     ← 공간 앵커 데이터
+        //   com.meta.spatial             ← Meta Spatial 서비스 (OS v65+)
+        //   com.oculus.vrshell           ← VR Shell (공간 인식 포함)
+        //
+        //   [/sdcard 외부 저장소 — rm 방식, ADB shell 권한으로 삭제 가능]
+        //   /sdcard/Android/data/com.oculus.guardian/
+        //   /sdcard/Android/data/com.oculus.scene/
+        //   /sdcard/Android/data/com.meta.scene/
+        //   /sdcard/Android/data/com.oculus.spatialanchor/
+        //   /sdcard/Oculus/Boundary/    ← 구버전 경계 데이터 경로
+        //
+        //   [내부 저장소 — 루트 없이는 접근 불가]
+        //   /data/data/com.oculus.*/  → 루트 필요, ADB shell 불가
+        private async void ResetSpatialDataBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            var connected = Devices.Where(d => d.Status == "Connected").ToList();
+            if (connected.Count == 0) { ShowMsg("연결된 기기가 없습니다."); return; }
+
+            var confirm = MessageBox.Show(
+                "MR 방 스캔 데이터(벽·바닥·천장 인식)를 초기화합니다.\n\n" +
+                "• Scene/Room 메시 데이터가 삭제됩니다.\n" +
+                "• Guardian 경계 데이터가 삭제됩니다.\n" +
+                "• 공간 앵커 데이터가 삭제됩니다.\n" +
+                "• 초기화 후 재부팅하면 방 스캔 화면이 나타납니다.\n\n" +
+                "계속하시겠습니까?",
+                "MR 공간 데이터 초기화",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            var results = new ConcurrentBag<string>();
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                {
+                    var sb = new System.Text.StringBuilder();
+                    int successCount = 0;
+
+                    // ── 1단계: pm clear — 구버전(com.oculus.*) + 신버전(com.meta.*) 패키지 모두 시도 ──
+                    // Meta OS v62부터 일부 패키지가 com.meta.* 로 이전됨
+                    // 설치되지 않은 패키지에 pm clear 실행 시 "Exception"이 반환되므로 Success 여부로 판정
+                    var pmPackages = new[]
+                    {
+                        "com.oculus.guardian",       // 경계 데이터 (구/신 공통, 항상 존재)
+                        "com.oculus.scene",          // Scene 메시 (OS v50~v65)
+                        "com.meta.scene",            // Scene 메시 (OS v62+, 패키지명 변경)
+                        "com.oculus.spatialanchor",  // 공간 앵커
+                        "com.meta.spatial",          // Meta Spatial 서비스 (OS v65+)
+                        "com.oculus.vrshell",        // VR Shell
+                    };
+
+                    foreach (var pkg in pmPackages)
+                    {
+                        string pmResult = RunCmd($"adb -s {device.Ip} shell pm clear {pkg}", 5000);
+                        bool pmOk = pmResult.Contains("Success", StringComparison.OrdinalIgnoreCase);
+                        // "Exception" 또는 "Unknown package" 이면 해당 OS에 패키지 없음 → 스킵
+                        bool notInstalled = pmResult.Contains("Exception", StringComparison.OrdinalIgnoreCase)
+                                         || pmResult.Contains("Unknown package", StringComparison.OrdinalIgnoreCase);
+                        if (pmOk) successCount++;
+                        string status = pmOk ? "✅" : (notInstalled ? "➖(없음)" : "⚠️");
+                        sb.AppendLine($"  {status} pm clear {pkg} : {pmResult.Trim()}");
+                    }
+
+                    // ── 2단계: settings 명령으로 guardian 경계 데이터 인라인 초기화 ──
+                    // OS가 메모리에 캐시하고 있는 경계 설정을 직접 지움
+                    string settingsResult = RunCmd($"adb -s {device.Ip} shell settings delete global guardian_boundary_data", 3000);
+                    bool settingsOk = !settingsResult.Contains("Timeout", StringComparison.OrdinalIgnoreCase);
+                    if (settingsOk) successCount++;
+                    sb.AppendLine($"  {(settingsOk ? "✅" : "⚠️")} settings delete guardian_boundary_data : {settingsResult.Trim()}");
+
+                    // ── 3단계: /sdcard 외부 저장소 삭제 ──
+                    // pm clear 이후에도 외부 저장소에 잔존 파일이 남을 수 있음
+                    var sdPaths = new[]
+                    {
+                        "/sdcard/Android/data/com.oculus.guardian",
+                        "/sdcard/Android/data/com.oculus.scene",
+                        "/sdcard/Android/data/com.meta.scene",
+                        "/sdcard/Android/data/com.oculus.spatialanchor",
+                        "/sdcard/Android/data/com.meta.spatial",
+                        "/sdcard/Oculus/Boundary",   // 구버전 OS 경계 데이터 경로
+                    };
+
+                    foreach (var path in sdPaths)
+                    {
+                        string testResult = RunCmd($"adb -s {device.Ip} shell \"test -e '{path}' && echo EXISTS || echo NOTFOUND\"", 3000);
+                        bool exists = testResult.Contains("EXISTS", StringComparison.OrdinalIgnoreCase)
+                                   && !testResult.Contains("Timeout", StringComparison.OrdinalIgnoreCase);
+
+                        if (!exists)
+                        {
+                            sb.AppendLine($"  ➖ {path} : 없음");
+                            continue;
+                        }
+
+                        string rmResult = RunCmd($"adb -s {device.Ip} shell rm -rf \"{path}\"", 5000);
+                        bool ok = !rmResult.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
+                               && !rmResult.Contains("Read-only",         StringComparison.OrdinalIgnoreCase)
+                               && !rmResult.Contains("Timeout",           StringComparison.OrdinalIgnoreCase);
+
+                        if (ok)
+                        {
+                            string verifyResult = RunCmd($"adb -s {device.Ip} shell \"test -e '{path}' && echo EXISTS || echo NOTFOUND\"", 2000);
+                            ok = verifyResult.Contains("NOTFOUND", StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        if (ok) successCount++;
+                        sb.AppendLine($"  {(ok ? "✅" : "⚠️")} {path} : {(ok ? "삭제 완료" : $"실패 ({rmResult.Trim()})")}");
+                    }
+
+                    // ── 4단계: 관련 서비스 프로세스 강제 종료 → 재실행 시 방 스캔 화면 표시 ──
+                    foreach (var pkg in new[] { "com.oculus.guardian", "com.oculus.scene", "com.meta.scene",
+                                                "com.oculus.spatialanchor", "com.meta.spatial", "com.oculus.vrshell" })
+                        RunCmd($"adb -s {device.Ip} shell am force-stop {pkg}", 2000);
+
+                    results.Add($"[{device.Name}] {(successCount > 0 ? $"✅ 초기화 완료 ({successCount}개 성공)" : "⚠️ 모두 실패 (설치 없음 또는 권한 문제)")}\n{sb}");
+                });
+            });
+
+            string summary = string.Join("\n", results.OrderBy(s => s));
+            bool allFailed = results.All(r => r.Contains("⚠️ 모두 실패"));
+
+            if (allFailed)
+            {
+                var diagChoice = MessageBox.Show(
+                    $"=== MR 공간 데이터 초기화 결과 ===\n\n{summary}\n\n" +
+                    "⚠️ 모든 패키지 초기화에 실패했습니다.\n" +
+                    "OS 버전에 따라 패키지명이 다를 수 있습니다.\n\n" +
+                    "[예] 기기의 실제 Scene/Guardian 데이터 경로 탐색\n" +
+                    "[아니오] 재부팅으로 강제 초기화",
+                    "초기화 실패",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (diagChoice == MessageBoxResult.Yes)
+                {
+                    await DiagnoseSpatialPathsAsync(connected);
+                    return;
+                }
+                await Task.Run(() =>
+                {
+                    Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                        RunCmd($"adb -s {device.Ip} shell reboot", 5000));
+                });
+                ShowMsg("재부팅 명령을 전송했습니다.\n기기가 재시작되면 Search Device로 다시 연결하세요.");
+                return;
+            }
+
+            var reboot = MessageBox.Show(
+                $"=== MR 공간 데이터 초기화 완료 ===\n\n{summary}\n\n" +
+                "재부팅하면 더 확실히 초기화됩니다.\n지금 재부팅하시겠습니까?",
+                "재부팅 권장",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (reboot == MessageBoxResult.Yes)
+            {
+                await Task.Run(() =>
+                {
+                    Parallel.ForEach(connected, new ParallelOptions { MaxDegreeOfParallelism = 8 }, device =>
+                        RunCmd($"adb -s {device.Ip} shell reboot", 5000));
+                });
+                ShowMsg("재부팅 명령을 전송했습니다.\n기기가 재시작되면 Search Device로 다시 연결하세요.\n헤드셋을 착용하면 방 스캔 화면이 나타납니다.");
+            }
+            else
+            {
+                ShowMsg("헤드셋을 착용하면 방 스캔 화면이 나타납니다.\n나타나지 않으면 기기를 재부팅해주세요.");
+            }
+        }
+
+        // vrshell / guardian / scene 관련 실제 데이터 경로를 깊이 탐색해서 표시
+        // ResetSpatialDataBtn_Click 에서 경로를 못 찾았을 때 호출
+        private async Task DiagnoseSpatialPathsAsync(List<Device> devices)
+        {
+            var diagResults = new ConcurrentBag<string>();
+
+            await Task.Run(() =>
+            {
+                Parallel.ForEach(devices, new ParallelOptions { MaxDegreeOfParallelism = 4 }, device =>
+                {
+                    var sb = new System.Text.StringBuilder();
+
+                    // ── 1단계: vrshell/files 하위를 재귀(-R 1단계)로 전부 나열 ──
+                    // find 대신 ls -la 계층 탐색으로 권한 없는 경로를 건너뜀
+                    var step1Paths = new[]
+                    {
+                        "/sdcard/Android/data/com.oculus.vrshell/files",
+                        "/sdcard/Android/data/com.oculus.guardian/files",
+                        "/sdcard/Android/data/com.oculus.guardian",
+                        "/sdcard/Android/data/com.oculus.scene",          // Scene 전용 패키지
+                        "/sdcard/Android/data/com.oculus.scenemesh",
+                        "/sdcard/Android/data/com.oculus.spatialanchor",
+                        "/sdcard/Oculus",
+                    };
+
+                    foreach (var basePath in step1Paths)
+                    {
+                        // 부모 존재 확인
+                        string test = RunCmd($"adb -s {device.Ip} shell \"test -d '{basePath}' && echo OK\"", 3000);
+                        if (!test.Contains("OK")) continue;
+
+                        // 재귀 1레벨 나열 (find -maxdepth 2 로 하위 폴더/파일 확인)
+                        string findOut = RunCmd(
+                            $"adb -s {device.Ip} shell find \"{basePath}\" -maxdepth 3 2>/dev/null", 6000);
+
+                        if (string.IsNullOrWhiteSpace(findOut) || findOut.Contains("Timeout"))
+                        {
+                            sb.AppendLine($"📂 {basePath}  ← (비어있거나 find 미지원)");
+                            continue;
+                        }
+
+                        sb.AppendLine($"📂 {basePath}");
+                        foreach (var line in findOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            var trimmed = line.Trim();
+                            if (trimmed == basePath) continue; // 자기 자신 제외
+                            sb.AppendLine($"  {trimmed}");
+                        }
+                        sb.AppendLine();
+                    }
+
+                    // ── 2단계: /sdcard/Android/data 에서 com.oculus.* 앱 목록 ──
+                    string appList = RunCmd($"adb -s {device.Ip} shell ls /sdcard/Android/data/ 2>/dev/null", 4000);
+                    if (!string.IsNullOrWhiteSpace(appList) && !appList.Contains("Timeout"))
+                    {
+                        var oculusPkgs = appList
+                            .Split(new[] { '\r', '\n', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Where(p => p.StartsWith("com.oculus", StringComparison.OrdinalIgnoreCase) ||
+                                        p.StartsWith("com.meta",   StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+
+                        if (oculusPkgs.Any())
+                        {
+                            sb.AppendLine("📦 /sdcard/Android/data 내 Meta/Oculus 앱 목록:");
+                            foreach (var pkg in oculusPkgs)
+                                sb.AppendLine($"  {pkg}");
+                            sb.AppendLine();
+                        }
+                    }
+
+                    string body = sb.ToString().Trim();
+                    diagResults.Add(
+                        $"[{device.Name}]\n" +
+                        (string.IsNullOrWhiteSpace(body)
+                            ? "(탐색 결과 없음 — 권한 문제 또는 경로 전체 부재)"
+                            : body));
+                });
+            });
+
+            string diagSummary = string.Join("\n\n", diagResults.OrderBy(s => s));
+            ShowMsg(
+                $"=== MR 데이터 경로 심층 탐색 결과 ===\n\n{diagSummary}\n\n" +
+                "📌 위 목록에서 Scene/Room/Boundary/Map 관련 파일·폴더 경로를 확인하세요.\n" +
+                "확인된 경로를 개발자에게 전달하면 삭제 대상에 추가됩니다.");
+        }
+
+    }
+
+    // ====================== mDNS ADB TLS 디스커버리 ======================
+    public static class AdbMdnsDiscovery
+    {
+        private static readonly string[] Services = new[]
+        {
+            "_adb-tls-connect._tcp.local.",
+            "_adb_secure_connect._tcp.local."
+        };
+
+        public static Task<List<(string ip, int port)>> DiscoverAsync(int mdnsTimeoutMs = 5000)
+            => DiscoverAsync(CancellationToken.None, mdnsTimeoutMs);
+
+        public static async Task<List<(string ip, int port)>> DiscoverAsync(CancellationToken token, int mdnsTimeoutMs = 5000)
+        {
+            var results = new List<(string, int)>();
+            var tasks = Services.Select(svc =>
+                ZeroconfResolver.ResolveAsync(svc, scanTime: TimeSpan.FromMilliseconds(mdnsTimeoutMs))).ToArray();
+            var all = await Task.WhenAll(tasks.Select(t => t.WithCancellation(token)));
+
+            foreach (var responses in all)
+            {
+                foreach (var resp in responses)
+                {
+                    var rec = resp.Services.Values.FirstOrDefault();
+                    if (rec == null) continue;
+
+                    string host = resp.IPAddresses?
+                        .FirstOrDefault(ip => IPAddress.TryParse(ip, out var a) && a.AddressFamily == AddressFamily.InterNetwork);
+
+                    if (!string.IsNullOrWhiteSpace(host))
+                        results.Add((host, rec.Port));
+                }
+            }
+
+            return results.Distinct().ToList();
+        }
+    }
+
+    // ====================== Device ======================
+    public class Device : INotifyPropertyChanged
+    {
+        private string _name;
+        private string _serial;
+        private string _ip;
+        private string _status;
+        private int _batteryLevel = -1;
+
+        public string Name
+        {
+            get => _name;
+            set { if (_name != value) { _name = value; OnPropertyChanged(); } }
+        }
+
+        public string Serial
+        {
+            get => _serial;
+            set { if (_serial != value) { _serial = value; } }
+        }
+
+        public string Ip
+        {
+            get => _ip;
+            set { if (_ip != value) { _ip = value; OnPropertyChanged(); } }
+        }
+
+        public string Status
+        {
+            get => _status;
+            set { if (_status != value) { _status = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsConnected)); } }
+        }
+
+        public int BatteryLevel
+        {
+            get => _batteryLevel;
+            set { if (_batteryLevel != value) { _batteryLevel = value; OnPropertyChanged(); OnPropertyChanged(nameof(BatteryText)); } }
+        }
+
+        public bool IsConnected => string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase);
+        public string BatteryText => BatteryLevel >= 0 ? $"{BatteryLevel}%" : "N/A";
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string prop = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+
+        public override bool Equals(object obj) => obj is Device d && Ip == d.Ip;
+        public override int GetHashCode() => Ip != null ? Ip.GetHashCode() : 0;
+    }
+
+    internal static class TaskExtensions
+    {
+        public static async Task<T> WithCancellation<T>(this Task<T> task, CancellationToken token)
+        {
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (token.Register(static s => ((TaskCompletionSource<bool>)s!).TrySetResult(true), tcs))
+            {
+                if (task == await Task.WhenAny(task, tcs.Task).ConfigureAwait(false))
+                    return await task.ConfigureAwait(false);
+                throw new OperationCanceledException(token);
+            }
+        }
+    }
+
+}

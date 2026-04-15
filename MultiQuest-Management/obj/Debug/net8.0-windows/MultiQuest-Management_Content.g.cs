@@ -8,7 +8,6 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("bin/debug/net8.0-windows/images/icon.ico")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/battery.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/brainpop.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/btn_g01blue.png")]
@@ -25,6 +24,7 @@
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/coding9.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/englishtown.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/firesafety.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/icon.ico")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/jurassic.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/koreahistory.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/multiscreen.png")]
@@ -35,6 +35,16 @@
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/smartfarm.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/solarsystem.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/stopicon.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon1.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon10.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon2.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon3.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon4.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon5.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon6.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon7.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon8.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon9.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/wifi.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/worldmap.png")]
 

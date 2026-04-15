@@ -1,265 +1,3 @@
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest-Management\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest-Management\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\AdbWinApi.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\AdbWinUsbApi.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\README.txt
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\adb.exe
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\avcodec-58.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\avformat-58.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\avutil-56.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\scrcpy-server.jar
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\swresample-3.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet\swscale-5.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\FFmpeg.AutoGen.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Microsoft.Extensions.Logging.Abstractions.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\ScrcpyNet.Wpf.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Serilog.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\SharpAdbClient.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.AssemblyReference.cache
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\VideoWallWindow.baml
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\VideoWallWindow.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQue.8056E0EF.Up2Date
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest-Management - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
-F:\WPF\MultiQuest-Management-Test\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.lref
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Battery.png
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Battery.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\System.Reactive.dll
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\bin\Debug\net8.0-windows\Zeroconf.dll
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.AssemblyReference.cache
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.lref
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQue.8056E0EF.Up2Date
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest-Management-Test - 복사본 - 복사본\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Battery.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\System.Reactive.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Zeroconf.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.AssemblyReference.cache
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\App.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_Content.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.lref
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.GeneratedMSBuildEditorConfig.editorconfig
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfoInputs.cache
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.AssemblyInfo.cs
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.CoreCompileInputs.cache
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.sourcelink.json
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQue.8056E0EF.Up2Date
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Battery.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\System.Reactive.dll
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Zeroconf.dll
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.AssemblyReference.cache
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
@@ -276,6 +14,9 @@ F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Mana
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.cache
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management_MarkupCompile.lref
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.exe
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\System.Reactive.dll
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Zeroconf.dll
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.g.resources
@@ -288,18 +29,10 @@ F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQue.8056E0
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.dll
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\refint\MultiQuest-Management.dll
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.pdb
-F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
-F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\KoreaHistory.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\WorldMap.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Musium.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Battery.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\BrainPop.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SmartFarm.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Btn_G01Blue.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SearchIcon.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\StopIcon.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\MultiScreen.png
-F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Jurassic.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding1.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding10.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding2.png
@@ -310,3 +43,34 @@ F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding6.
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding7.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding8.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Coding9.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\EnglishTown.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\FireSafety.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Jurassic.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\KoreaHistory.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\MultiScreen.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Musium.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\No_Wifi.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\OceanAdventure.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SearchIcon.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SmartFarm.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\SolarSystem.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\StopIcon.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon1.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon10.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon2.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon3.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon4.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon5.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon6.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon7.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon8.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Storywing_Icon9.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Wifi.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\WorldMap.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.deps.json
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.runtimeconfig.json
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.dll
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\MultiQuest-Management.pdb
+F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.genruntimeconfig.cache
+F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\icon.ico

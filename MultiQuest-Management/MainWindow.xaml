@@ -212,6 +212,7 @@ TextOptions.TextRenderingMode="ClearType">
                 <Menu DockPanel.Dock="Top" Background="Transparent" Margin="8,8,8,0">
                     <MenuItem Header="⚙ 설정" Foreground="White" FontWeight="Bold" FontSize="13">
                         <MenuItem Header="이름 설정" Click="OpenSettings_Click" Foreground="Black"/>
+                        <MenuItem Header="방 설정 전체 초기화" Click="ResetGuardianBtn_Click" Foreground="Black"/>
                     </MenuItem>
                 </Menu>
 
@@ -567,209 +568,188 @@ TextOptions.TextRenderingMode="ClearType">
                     </Border>
                 </Border>
 
-                <!-- ── 패널 2: XR Coding프로그램 (4×7 그리드, 버튼 28개) ── -->
-                <!-- Tag = 슬롯 번호(0~27) = Devices 컬렉션 인덱스 = Unity stage 값 -->
+                <!-- ── 패널 2: XR Coding프로그램 ── -->
+                <!-- 아이콘(Tag=0~27) 클릭 → 레벨(Tag+1) 표시 + Unit 1~4 선택 오버레이 -->
                 <Border x:Name="PanelXrCoding" Visibility="Collapsed"
                         Background="#E8650A" CornerRadius="0" Margin="12">
-                    <Border Background="#111827" CornerRadius="20" Margin="4" Padding="16">
-                        <UniformGrid Rows="4" Columns="7">
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="0" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding1.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                    <Grid>
+                        <!-- 배경 아이콘 그리드 (항상 표시) -->
+                        <Border Background="#111827" CornerRadius="20" Margin="4" Padding="16">
+                            <UniformGrid Rows="4" Columns="7">
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="0"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding1.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="1"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding2.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="2"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding3.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="3"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding4.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="4"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding5.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="5"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding6.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="6"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding7.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="7"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding8.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="8"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding9.png"  Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="9"  Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding10.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="10" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="11" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="12" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="13" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="14" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="15" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="16" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="17" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="18" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="19" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="20" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="21" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="22" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="23" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="24" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="25" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="26" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                                <Viewbox Stretch="Uniform" Margin="6"><Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="27" Width="160" Height="160"><Button.Background><ImageBrush ImageSource="Images/Coding.png"   Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background></Button></Viewbox>
+                            </UniformGrid>
+                        </Border>
+
+                        <!-- Unit 선택 오버레이 (아이콘 클릭 시 표시) -->
+                        <Border x:Name="CodingUnitOverlay" Visibility="Collapsed"
+                                CornerRadius="20" Margin="80,60"
+                                Background="#AA3A6BC4">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- 제목: [XR 코딩 교육] 레벨 N -->
+                                <TextBlock x:Name="CodingOverlayTitle"
+                                           Grid.Row="0"
+                                           Text="[XR 코딩 교육]&#x0a;레벨 1"
+                                           Foreground="White" FontSize="32" FontWeight="Bold"
+                                           TextAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="0,24,0,20"/>
+
+                                <!-- Unit 1~4 버튼 -->
+                                <UniformGrid Grid.Row="1" Rows="1" Columns="4" Margin="30,0,30,40">
+                                    <Viewbox Stretch="Uniform" Margin="12">
+                                        <Button Style="{StaticResource AppIconBtn}"
+                                                Click="CodingUnitBtn_Click" Tag="1"
+                                                Width="160" Height="80">
+                                            <Button.Background><SolidColorBrush Color="#5B8FD8"/></Button.Background>
+                                                    <TextBlock Text="Unit 1" Foreground="White"
+                                                       FontSize="22" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Viewbox>
+                                    <Viewbox Stretch="Uniform" Margin="12">
+                                        <Button Style="{StaticResource AppIconBtn}"
+                                                Click="CodingUnitBtn_Click" Tag="2"
+                                                Width="160" Height="80">
+                                            <Button.Background><SolidColorBrush Color="#5B8FD8"/></Button.Background>
+                                            <TextBlock Text="Unit 2" Foreground="White"
+                                                       FontSize="22" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Viewbox>
+                                    <Viewbox Stretch="Uniform" Margin="12">
+                                        <Button Style="{StaticResource AppIconBtn}"
+                                                Click="CodingUnitBtn_Click" Tag="3"
+                                                Width="160" Height="80">
+                                            <Button.Background><SolidColorBrush Color="#5B8FD8"/></Button.Background>
+                                            <TextBlock Text="Unit 3" Foreground="White"
+                                                       FontSize="22" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Viewbox>
+                                    <Viewbox Stretch="Uniform" Margin="12">
+                                        <Button Style="{StaticResource AppIconBtn}"
+                                                Click="CodingUnitBtn_Click" Tag="4"
+                                                Width="160" Height="80">
+                                            <Button.Background><SolidColorBrush Color="#5B8FD8"/></Button.Background>
+                                            <TextBlock Text="Unit 4" Foreground="White"
+                                                       FontSize="22" FontWeight="Bold"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Viewbox>
+                                </UniformGrid>
+
+                                <!-- 우측 상단 닫기 버튼 (Grid 전체 기준) -->
+                                <Button Grid.Row="0" Grid.RowSpan="2"
+                                        Content="✕" Click="CodingOverlayCloseBtn_Click"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Width="36" Height="36" Margin="0,8,8,0"
+                                        Foreground="White" FontSize="16" FontWeight="Bold"
+                                        Background="#CC3333" BorderBrush="Transparent" BorderThickness="0"
+                                        Cursor="Hand">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="bg" CornerRadius="8"
+                                                    Background="{TemplateBinding Background}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bg" Property="Opacity" Value="0.8"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
                                 </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="1" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding2.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="2" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding3.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="3" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding4.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="4" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding5.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="5" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding6.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="6" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding7.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="7" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding8.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="8" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding9.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="9" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding10.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="11" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="12" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="13" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="14" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="15" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="16" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="17" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="18" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="19" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="20" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="21" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="22" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="23" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="24" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="25" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="26" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                            <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="CodingAppBtn_Click" Tag="27" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/Coding.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
-                                </Button>
-                            </Viewbox>
-                        </UniformGrid>
-                    </Border>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </Border>
 
                 <!-- ── 패널 3: XR English(알파통)프로그램 ── -->
+                <!-- Tag=0~9 클릭 시 stage 변수(0~9)를 전달 -->
                 <Border x:Name="PanelXrEnglish" Visibility="Collapsed"
                         Background="#E8650A" CornerRadius="0" Margin="12">
                     <Border Background="#111827" CornerRadius="20" Margin="4" Padding="16">
                         <UniformGrid Rows="2" Columns="5">
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="0" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon1.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="1" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon2.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="2" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon3.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="3" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon4.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="4" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon5.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="5" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon6.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="6" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon7.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="7" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon8.png" Stretch="UniformToFill"/></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="8" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon9.png" Stretch="UniformToFill" /></Button.Background>
                                 </Button>
                             </Viewbox>
                             <Viewbox Stretch="Uniform" Margin="6">
-                                <Button Style="{StaticResource AppIconBtn}" Click="AllDeviceStartAppBtn_Click" Tag="10" Width="160" Height="160">
-                                    <Button.Background><ImageBrush ImageSource="Images/alphatong.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
+                                <Button Style="{StaticResource AppIconBtn}" Click="EnglishAppBtn_Click" Tag="9" Width="160" Height="160">
+                                    <Button.Background><ImageBrush ImageSource="/Images/Storywing_Icon10.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/></Button.Background>
                                 </Button>
                             </Viewbox>
                         </UniformGrid>
