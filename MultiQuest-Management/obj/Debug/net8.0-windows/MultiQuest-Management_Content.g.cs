@@ -8,6 +8,9 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/button.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/buttonframe.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/icon.ico")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/battery.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/brainpop.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/btn_g01blue.png")]
@@ -24,7 +27,6 @@
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/coding9.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/englishtown.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/firesafety.png")]
-[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/icon.ico")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/jurassic.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/koreahistory.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/multiscreen.png")]
