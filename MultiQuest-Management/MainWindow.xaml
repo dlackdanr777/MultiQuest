@@ -878,8 +878,24 @@ TextOptions.TextRenderingMode="ClearType">
                                                             Click="DeleteDeviceBtn_Click" CommandParameter="{Binding}"/>
                                                 </StackPanel>
                                             </Grid>
-                                            <Border x:Name="PART_MirrorHost" Grid.Row="1"
-                                                    Style="{StaticResource MirrorSurface}" Margin="4,2,4,4"/>
+                                            <Grid Grid.Row="1" Margin="4,2,4,4">
+                                                <Border x:Name="PART_MirrorHost"
+                                                        Style="{StaticResource MirrorSurface}"/>
+                                                <!-- 미러링 실패 오류 오버레이 -->
+                                                <Border CornerRadius="8"
+                                                        Background="#CC1A0A0A"
+                                                        Visibility="{Binding HasMirrorError, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="6">
+                                                        <TextBlock Text="⚠ 미러링 실패"
+                                                                   Foreground="#FF5963" FontSize="11" FontWeight="Bold"
+                                                                   HorizontalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding MirrorError}"
+                                                                   Foreground="#D8E2F1" FontSize="9"
+                                                                   TextWrapping="Wrap" TextAlignment="Center"
+                                                                   Margin="0,3,0,0" MaxWidth="140"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Grid>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

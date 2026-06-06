@@ -46,7 +46,7 @@ namespace MultiQuest_Management
             // Tag=4: 소방안전
             new[] { "com.StoryWing.Fire_Safety",        "com.StoryWing.FirepreventionApp" },
             // Tag=5: 쥬라기공원
-            new[] { "com.StoryWing.JurassicPark",       "com.StoryWing.XR_JurassicPark" },
+            new[] { "com.StoryWing.Jurassic" },
             // Tag=6: 브레인팝
             new[] { "com.StoryWing.BrainPop",           "com.StoryWing.XR_BrainTraining" },
             // Tag=7: 스마트팜
@@ -62,7 +62,7 @@ namespace MultiQuest_Management
             // Tag=12: 코딩
             new[] { "com.StoryWing.XR_Coding" },
             // Tag=13: 영어
-            new[] { "com.StoryWing.Storywing_Class" },
+            new[] { "com.StoryWing.Storywing_Class", "com.StoryWing.StorywingClass"  },
         };
         private CancellationTokenSource _scanCancelSource;
         private MultiMirrorWindow _multiMirrorWindow;
@@ -156,6 +156,7 @@ namespace MultiQuest_Management
         {
             EnsureAdbRunning();
             InitializeComponent();
+            this.WindowState = WindowState.Maximized;
             DataContext = this;
 
             // 종료 시점 감지 (메시지 박스 등 UI 호출 방지)
@@ -582,55 +583,85 @@ namespace MultiQuest_Management
         {
             if (device == null || device.Status != "Connected") return null;
 
-            string videoCodec = "h264";
-            bool noAudio = true;
-            // 동시 접속 기기 수에 따라 비트레이트 자동 조정:
-            // 기기가 많을수록 AP 대역폭을 공유하므로 비트레이트를 낮춰 전체 안정성 확보
-            // 1~4대: 4Mbps, 5~8대: 3Mbps, 9대 이상: 2Mbps
             int connectedCount = Devices.Count(d => d.IsConnected);
             int bitrateMbps = connectedCount >= 9 ? 2 : connectedCount >= 5 ? 3 : 4;
-            int maxFps = connectedCount >= 9 ? 15 : 20;  // 9대 이상이면 fps도 낮춰 부하 감소
-            string windowTitle = device.Name;
-            int windowWidth = width, windowHeight = height;
-            int maxSize = connectedCount >= 9 ? 360 : 480;  // 9대 이상이면 해상도도 축소
-            int buffer = 200;      // 200ms: 메타 퀘스트 Wi-Fi ADB의 지터 흡수
+            int maxFps      = connectedCount >= 9 ? 15 : 20;
+            int maxSize     = connectedCount >= 9 ? 360 : 480;
+            string windowTitle = device.Name ?? device.Ip;
 
-            int maxRetry = 3;         // 5 → 3: 실패 누적 시간 단축
-            int pollIntervalMs = 50;  // 100 → 50: 창 핸들 탐지 속도 향상
-            int maxWaitMs = 4000;     // 10000 → 4000: 응답 없는 프로세스 빨리 포기
-            Process newProc = null;
+            // 시도할 인수 세트: 1차(--video-buffer 포함), 2차(폴백 — 구버전 scrcpy 호환)
+            var argSets = new[]
+            {
+                // 1차: scrcpy v2.1+ 전체 옵션
+                new[]
+                {
+                    $"-s {device.Ip}",
+                    "--video-codec=h264",
+                    "--no-audio",
+                    $"-b {bitrateMbps}M",
+                    $"--max-fps {maxFps}",
+                    $"--max-size {maxSize}",
+                    "--video-buffer=200",
+                    $"--window-title \"{windowTitle}\"",
+                    $"--window-width={width}",
+                    $"--window-height={height}",
+                },
+                // 2차 폴백: --video-buffer 제거 (scrcpy v2.0 이하 호환)
+                new[]
+                {
+                    $"-s {device.Ip}",
+                    "--video-codec=h264",
+                    "--no-audio",
+                    $"-b {bitrateMbps}M",
+                    $"--max-fps {maxFps}",
+                    $"--max-size {maxSize}",
+                    $"--window-title \"{windowTitle}\"",
+                    $"--window-width={width}",
+                    $"--window-height={height}",
+                },
+                // 3차 폴백: 최소 옵션 (호환성 최대)
+                new[]
+                {
+                    $"-s {device.Ip}",
+                    "--no-audio",
+                    $"--max-size {maxSize}",
+                    $"--window-title \"{windowTitle}\"",
+                    $"--window-width={width}",
+                    $"--window-height={height}",
+                },
+            };
 
-            for (int attempt = 1; attempt <= maxRetry; attempt++)
+            int pollIntervalMs = 50;
+            int maxWaitMs      = 10000;  // 4000 → 10000: AnyDesk 등 원격 환경에서 창 핸들 감지 지연 대응
+            string scrcpyPath  = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe");
+            Process newProc    = null;
+
+            foreach (var argSet in argSets)
             {
                 if (cancellationToken.IsCancellationRequested) return null;
 
+                string arguments = string.Join(" ", argSet.Where(s => !string.IsNullOrWhiteSpace(s)));
+                Trace.WriteLine($"[scrcpy] 시도: {arguments}");
+
                 try
                 {
-                    var argList = new[]
-                    {
-                        $"-s {device.Ip}",
-                        $"--video-codec={videoCodec}",
-                        noAudio ? "--no-audio" : "",
-                        $"-b {bitrateMbps}M",
-                        $"--max-fps {maxFps}",
-                        $"--max-size {maxSize}",
-                        $"--video-buffer={buffer}",
-                        $"--window-title \"{windowTitle}\"",
-                        $"--window-width={windowWidth}",
-                        $"--window-height={windowHeight}",
-                    }.Where(s => !string.IsNullOrWhiteSpace(s));
-
-                    string arguments = string.Join(" ", argList);
-
                     var psi = new ProcessStartInfo
                     {
-                        FileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scrcpy", "scrcpy.exe"),
-                        Arguments = arguments,
-                        UseShellExecute = false,
-                        CreateNoWindow = true  // 콘솔 창 억제 (SDL 미러링 창은 Win32 일반 창이므로 영향 없음)
+                        FileName               = scrcpyPath,
+                        Arguments              = arguments,
+                        UseShellExecute        = false,
+                        CreateNoWindow         = true,
+                        RedirectStandardError  = true,   // 오류 원인 캡처
+                        RedirectStandardOutput = true,
                     };
+
                     newProc = Process.Start(psi);
+                    if (newProc == null) continue;
                     newProc.EnableRaisingEvents = true;
+
+                    // stderr를 비동기로 읽어둠 (버퍼 데드락 방지)
+                    var stderrTask = newProc.StandardError.ReadToEndAsync();
+                    var stdoutTask = newProc.StandardOutput.ReadToEndAsync();
 
                     bool hasWindow = false;
                     var sw = Stopwatch.StartNew();
@@ -640,11 +671,7 @@ namespace MultiQuest_Management
                         try
                         {
                             newProc.Refresh();
-                            if (newProc.MainWindowHandle != IntPtr.Zero)
-                            {
-                                hasWindow = true;
-                                break;
-                            }
+                            if (newProc.MainWindowHandle != IntPtr.Zero) { hasWindow = true; break; }
                         }
                         catch { }
                         try { await Task.Delay(pollIntervalMs, cancellationToken); } catch { break; }
@@ -652,29 +679,71 @@ namespace MultiQuest_Management
 
                     if (!hasWindow || newProc.HasExited)
                     {
+                        // scrcpy가 즉시 종료된 경우 stderr로 원인 파악
+                        string stderr = "";
+                        try
+                        {
+                            if (newProc.HasExited)
+                                stderr = await Task.WhenAny(stderrTask, Task.Delay(500, CancellationToken.None)) == stderrTask
+                                    ? stderrTask.Result : "";
+                        }
+                        catch { }
+
+                        int exitCode = -1;
+                        try { if (newProc.HasExited) exitCode = newProc.ExitCode; } catch { }
+
+                        Trace.WriteLine($"[scrcpy] 실패 (exitCode={exitCode}): {stderr?.Trim()}");
+
+                        // 마지막 실패 원인을 device에 기록
+                        if (!string.IsNullOrWhiteSpace(stderr))
+                        {
+                            string reason = stderr.Trim();
+                            // 너무 길면 첫 줄만
+                            var firstLine = reason.Split('\n')[0].Trim();
+                            device.MirrorError = $"[exitCode={exitCode}]\n{firstLine}";
+                        }
+                        else if (exitCode != -1)
+                        {
+                            device.MirrorError = $"scrcpy 실행 실패 (exitCode={exitCode})";
+                        }
+                        else
+                        {
+                            device.MirrorError = $"창 감지 타임아웃 ({maxWaitMs/1000}초)\nscrcpy가 실행됐지만 창이 열리지 않음";
+                        }
+
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
                         newProc = null;
-                        // 재시도 전 잠깐 대기 (ADB 연결 안정화)
-                        if (attempt < maxRetry)
-                            try { await Task.Delay(500, cancellationToken); } catch { break; }
+
+                        bool isOptionError = !string.IsNullOrEmpty(stderr) &&
+                            (stderr.Contains("unknown option", StringComparison.OrdinalIgnoreCase) ||
+                             stderr.Contains("unrecognized",  StringComparison.OrdinalIgnoreCase) ||
+                             stderr.Contains("invalid option",StringComparison.OrdinalIgnoreCase) ||
+                             stderr.Contains("--video-buffer",StringComparison.OrdinalIgnoreCase));
+
+                        if (!isOptionError)
+                        {
+                            try { await Task.Delay(400, cancellationToken); } catch { return null; }
+                        }
                         continue;
                     }
-                    else
-                    {
-                        break; // 성공
-                    }
+
+                    // 성공 — 오류 메시지 클리어
+                    device.MirrorError = null;
+                    Trace.WriteLine($"[scrcpy] 시작 성공 (pid={newProc.Id})");
+                    return newProc;
                 }
                 catch (OperationCanceledException)
                 {
                     if (newProc != null && !newProc.HasExited) try { newProc.Kill(); } catch { }
                     throw;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Trace.WriteLine($"[scrcpy] 예외: {ex.Message}");
+                    device.MirrorError = $"실행 오류: {ex.Message}";
                     if (newProc != null && !newProc.HasExited) try { newProc.Kill(); } catch { }
                     newProc = null;
-                    if (attempt < maxRetry)
-                        try { await Task.Delay(500, cancellationToken); } catch { break; }
+                    try { await Task.Delay(300, cancellationToken); } catch { return null; }
                 }
             }
 
@@ -684,7 +753,7 @@ namespace MultiQuest_Management
                 return null;
             }
 
-            return newProc;
+            return newProc; // null (모든 시도 실패)
         }
 
         public async Task<Process> StartMirroringWithSemaphoreAsync(Device device, int width, int height, CancellationToken cancellationToken)
@@ -2415,6 +2484,15 @@ namespace MultiQuest_Management
 
     }
 
+    public sealed class BoolToVisibilityConverter : System.Windows.Data.IValueConverter
+    {
+        public static readonly BoolToVisibilityConverter Instance = new();
+        public object Convert(object value, Type t, object p, System.Globalization.CultureInfo c)
+            => value is true ? Visibility.Visible : Visibility.Collapsed;
+        public object ConvertBack(object value, Type t, object p, System.Globalization.CultureInfo c)
+            => throw new NotImplementedException();
+    }
+
     // ====================== mDNS ADB TLS 디스커버리 ======================
     public static class AdbMdnsDiscovery
     {
@@ -2491,6 +2569,14 @@ namespace MultiQuest_Management
             get => _batteryLevel;
             set { if (_batteryLevel != value) { _batteryLevel = value; OnPropertyChanged(); OnPropertyChanged(nameof(BatteryText)); } }
         }
+
+        private string _mirrorError;
+        public string MirrorError
+        {
+            get => _mirrorError;
+            set { if (_mirrorError != value) { _mirrorError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMirrorError)); } }
+        }
+        public bool HasMirrorError => !string.IsNullOrEmpty(_mirrorError);
 
         public bool IsConnected => string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase);
         public string BatteryText => BatteryLevel >= 0 ? $"{BatteryLevel}%" : "N/A";
