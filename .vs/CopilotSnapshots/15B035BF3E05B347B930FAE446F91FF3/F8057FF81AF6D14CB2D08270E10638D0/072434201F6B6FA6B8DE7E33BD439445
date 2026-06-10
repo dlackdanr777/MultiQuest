@@ -1,0 +1,74 @@
+﻿<Window x:Class="MultiQuest_Management.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MultiQuest - 업데이트 확인"
+        Width="460" Height="260"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent">
+
+    <Border Background="#1E1E2E" CornerRadius="12"
+            BorderBrush="#3A3A5A" BorderThickness="1">
+        <Grid Margin="28,24,28,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 제목 -->
+            <TextBlock Grid.Row="0"
+                       Text="MultiQuest Management"
+                       FontSize="18" FontWeight="Bold"
+                       Foreground="#F5A623"/>
+
+            <!-- 상태 메시지 -->
+            <TextBlock Grid.Row="1" x:Name="StatusText"
+                       Text="업데이트 확인 중..."
+                       FontSize="13" Foreground="#CCCCCC"
+                       Margin="0,10,0,0"/>
+
+            <!-- 버전 정보 -->
+            <TextBlock Grid.Row="2" x:Name="VersionText"
+                       Text="" FontSize="12" Foreground="#888888"
+                       Margin="0,6,0,0"/>
+
+            <!-- 다운로드 진행바 -->
+            <ProgressBar Grid.Row="3" x:Name="ProgressBar"
+                         Height="8" Margin="0,12,0,0"
+                         Minimum="0" Maximum="100" Value="0"
+                         Visibility="Collapsed"
+                         Foreground="#F5A623"
+                         Background="#3A3A5A"/>
+
+            <!-- 다운로드 % 텍스트 -->
+            <TextBlock Grid.Row="3" x:Name="ProgressText"
+                       Text="" FontSize="11" Foreground="#AAAAAA"
+                       HorizontalAlignment="Right"
+                       Margin="0,12,0,0"
+                       Visibility="Collapsed"/>
+
+            <!-- 버튼 영역 -->
+            <StackPanel Grid.Row="4" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button x:Name="SkipBtn" Content="건너뛰기"
+                        Width="100" Height="34" Margin="0,0,10,0"
+                        Click="SkipBtn_Click"
+                        FontSize="13"
+                        Background="#3A3A5A" Foreground="White"
+                        BorderBrush="#555577" Cursor="Hand"/>
+                <Button x:Name="ActionBtn" Content="업데이트"
+                        Width="120" Height="34"
+                        Click="ActionBtn_Click"
+                        FontSize="13"
+                        Background="#F5A623" Foreground="White"
+                        BorderBrush="Transparent"
+                        Visibility="Collapsed" Cursor="Hand"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

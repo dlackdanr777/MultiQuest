@@ -75,3 +75,7 @@ F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Mana
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ref\MultiQuest-Management.dll
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\ButtonFrame.png
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Images\Button.png
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\version.txt
+F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\UpdateWindow.baml
+F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\UpdateWindow.g.cs
+F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\edition.txt

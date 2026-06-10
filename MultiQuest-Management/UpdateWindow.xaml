@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="MultiQuest_Management.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MultiQuest - Update"
+        Width="460" Height="260"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent">
+
+    <Border Background="#1E1E2E" CornerRadius="12"
+            BorderBrush="#3A3A5A" BorderThickness="1">
+        <Grid Margin="28,24,28,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="MultiQuest Management"
+                       FontSize="18" FontWeight="Bold"
+                       Foreground="#F5A623"/>
+
+            <TextBlock Grid.Row="1" x:Name="StatusText"
+                       Text=""
+                       FontSize="13" Foreground="#CCCCCC"
+                       Margin="0,10,0,0"/>
+
+            <TextBlock Grid.Row="2" x:Name="VersionText"
+                       Text="" FontSize="12" Foreground="#888888"
+                       Margin="0,6,0,0"/>
+
+            <ProgressBar Grid.Row="3" x:Name="ProgressBar"
+                         Height="8" Margin="0,12,0,0"
+                         Minimum="0" Maximum="100" Value="0"
+                         Visibility="Collapsed"
+                         Foreground="#F5A623"
+                         Background="#3A3A5A"/>
+
+            <TextBlock Grid.Row="3" x:Name="ProgressText"
+                       Text="" FontSize="11" Foreground="#AAAAAA"
+                       HorizontalAlignment="Right"
+                       Margin="0,12,0,0"
+                       Visibility="Collapsed"/>
+
+            <StackPanel Grid.Row="4" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button x:Name="SkipBtn"
+                        Width="100" Height="34" Margin="0,0,10,0"
+                        Click="SkipBtn_Click"
+                        FontSize="13"
+                        Background="#3A3A5A" Foreground="White"
+                        BorderBrush="#555577" Cursor="Hand"/>
+                <Button x:Name="ActionBtn"
+                        Width="120" Height="34"
+                        Click="ActionBtn_Click"
+                        FontSize="13"
+                        Background="#F5A623" Foreground="White"
+                        BorderBrush="Transparent"
+                        Visibility="Collapsed" Cursor="Hand"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

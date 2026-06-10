@@ -1,0 +1,100 @@
+﻿using System;
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MultiQuest_Management
+{
+    /// <summary>
+    /// Google Cloud Storage 공개 버킷을 통한 자동 업데이트 서비스.
+    ///
+    /// [GCS 설정 방법]
+    /// 1. Google Cloud Console → Cloud Storage → 버킷 생성
+    /// 2. 버킷 권한: allUsers 에게 "Storage Object Viewer" 권한 부여 (공개 읽기)
+    /// 3. 버킷에 다음 두 파일 업로드:
+    ///      version.txt         — 최신 버전 문자열만 (예: 1.0.1)
+    ///      MultiQuestSetup.exe — Inno Setup 또는 NSIS 로 만든 인스톨러
+    /// 4. 아래 BucketName 상수를 실제 버킷 이름으로 교체
+    ///
+    /// [새 버전 배포 절차]
+    /// 1. 프로젝트의 version.txt 를 새 버전으로 수정 (예: 1.0.1)
+    /// 2. Release 빌드 후 인스톨러(MultiQuestSetup.exe) 생성
+    ///    - 인스톨러는 설치 디렉터리의 version.txt 도 새 버전으로 교체해야 함
+    /// 3. GCS 버킷에 version.txt 와 MultiQuestSetup.exe 업로드
+    /// </summary>
+    internal static class UpdateService
+    {
+        // ★★★ 실제 GCS 버킷 이름으로 교체하세요 ★★★
+        private const string BucketName = "your-bucket-name";
+
+        private static readonly string VersionFileUrl =
+            $"https://storage.googleapis.com/{BucketName}/version.txt";
+        private static readonly string InstallerUrl =
+            $"https://storage.googleapis.com/{BucketName}/MultiQuestSetup.exe";
+
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+
+        /// <summary>설치 디렉터리의 version.txt 경로</summary>
+        public static string LocalVersionPath =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.txt");
+
+        /// <summary>로컬 버전 문자열 반환 (파일 없으면 "0.0.0")</summary>
+        public static string GetLocalVersion()
+        {
+            try
+            {
+                if (File.Exists(LocalVersionPath))
+                    return File.ReadAllText(LocalVersionPath).Trim();
+            }
+            catch { }
+            return "0.0.0";
+        }
+
+        /// <summary>GCS의 version.txt 와 로컬 버전을 비교합니다.</summary>
+        /// <returns>(업데이트 필요 여부, 원격 버전 문자열)</returns>
+        public static async Task<(bool hasUpdate, string remoteVersion)> CheckForUpdateAsync(
+            CancellationToken token)
+        {
+            string remote = (await _http.GetStringAsync(VersionFileUrl, token)).Trim();
+            string local = GetLocalVersion();
+
+            bool hasUpdate = Version.TryParse(remote, out var rv) &&
+                             Version.TryParse(local, out var lv) &&
+                             rv > lv;
+
+            return (hasUpdate, remote);
+        }
+
+        /// <summary>
+        /// GCS 에서 인스톨러를 다운로드합니다.
+        /// progress 는 0.0 ~ 1.0 범위입니다.
+        /// </summary>
+        public static async Task DownloadInstallerAsync(
+            string destPath, IProgress<double> progress, CancellationToken token)
+        {
+            using var response = await _http.GetAsync(
+                InstallerUrl, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+
+            long totalBytes = response.Content.Headers.ContentLength ?? -1;
+            await using var src = await response.Content.ReadAsStreamAsync(token);
+            await using var dst = File.Create(destPath);
+
+            var buffer = new byte[65536];
+            long downloaded = 0;
+            int read;
+
+            while ((read = await src.ReadAsync(buffer, token)) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read), token);
+                downloaded += read;
+                if (totalBytes > 0)
+                    progress?.Report((double)downloaded / totalBytes);
+            }
+        }
+    }
+}

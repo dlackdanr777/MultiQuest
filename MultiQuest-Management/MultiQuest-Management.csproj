@@ -191,6 +191,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="version.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="edition.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Zeroconf" Version="3.7.16" />
   </ItemGroup>
 

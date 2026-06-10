@@ -1,0 +1,171 @@
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace MultiQuest_Management
+{
+    public partial class UpdateWindow : Window
+    {
+        private CancellationTokenSource _cts = new();
+        private string _installerPath = Path.Combine(Path.GetTempPath(), "MultiQuestSetup.exe");
+        private bool _updateReady;   // 다운로드 완료 후 설치 대기 상태
+        private bool _launched;      // MainWindow를 이미 열었는지
+
+        public UpdateWindow()
+        {
+            InitializeComponent();
+            Loaded += async (_, _) => await RunUpdateFlowAsync();
+        }
+
+        // ====================== 업데이트 흐름 ======================
+        private async Task RunUpdateFlowAsync()
+        {
+            try
+            {
+                // 1) 버전 비교
+                SetStatus("업데이트 서버에 연결 중...");
+                var (hasUpdate, remoteVer) = await UpdateService.CheckForUpdateAsync(_cts.Token);
+
+                string localVer = UpdateService.GetLocalVersion();
+                VersionText.Text = $"현재 버전: {localVer}   |   최신 버전: {remoteVer}";
+
+                if (!hasUpdate)
+                {
+                    SetStatus("최신 버전입니다. 메인 화면을 시작합니다...");
+                    await Task.Delay(1000, _cts.Token);
+                    LaunchMainWindow();
+                    return;
+                }
+
+                // 2) 업데이트 있음 → 사용자에게 선택권 제공
+                SetStatus($"새 버전({remoteVer})이 있습니다. 업데이트를 진행하시겠습니까?");
+                ActionBtn.Content = "업데이트";
+                ActionBtn.Visibility = Visibility.Visible;
+                SkipBtn.Visibility = Visibility.Visible;
+            }
+            catch (OperationCanceledException)
+            {
+                LaunchMainWindow();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"업데이트 확인 실패: {ex.Message}");
+                VersionText.Text = "네트워크 오류 — 메인 화면을 시작합니다.";
+                SkipBtn.Visibility = Visibility.Visible;
+                await Task.Delay(2000);
+                LaunchMainWindow();
+            }
+        }
+
+        // ====================== 버튼 이벤트 ======================
+        private async void ActionBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updateReady)
+            {
+                // 다운로드 완료 → 인스톨러 실행
+                InstallAndExit();
+                return;
+            }
+
+            // 다운로드 시작
+            ActionBtn.IsEnabled = false;
+            SkipBtn.IsEnabled   = false;
+            ActionBtn.Content   = "다운로드 중...";
+            ShowProgress(true);
+            SetStatus("업데이트 파일을 다운로드하는 중...");
+
+            try
+            {
+                var progress = new Progress<double>(v =>
+                {
+                    int pct = (int)(v * 100);
+                    ProgressBar.Value  = pct;
+                    ProgressText.Text  = $"{pct}%";
+                });
+
+                await UpdateService.DownloadInstallerAsync(_installerPath, progress, _cts.Token);
+
+                ProgressBar.Value  = 100;
+                ProgressText.Text  = "100%";
+                SetStatus("다운로드 완료! 설치를 시작하려면 '설치' 버튼을 누르세요.");
+                ActionBtn.Content  = "설치";
+                ActionBtn.IsEnabled = true;
+                _updateReady = true;
+            }
+            catch (OperationCanceledException)
+            {
+                SetStatus("다운로드가 취소되었습니다.");
+                ShowProgress(false);
+                ActionBtn.Content = "업데이트";
+                ActionBtn.IsEnabled = true;
+                SkipBtn.IsEnabled   = true;
+                _updateReady = false;
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"다운로드 실패: {ex.Message}");
+                ShowProgress(false);
+                ActionBtn.Content   = "재시도";
+                ActionBtn.IsEnabled = true;
+                SkipBtn.IsEnabled   = true;
+            }
+        }
+
+        private void SkipBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _cts.Cancel();
+            LaunchMainWindow();
+        }
+
+        // ====================== 헬퍼 ======================
+        private void SetStatus(string msg) => StatusText.Text = msg;
+
+        private void ShowProgress(bool visible)
+        {
+            var v = visible ? Visibility.Visible : Visibility.Collapsed;
+            ProgressBar.Visibility  = v;
+            ProgressText.Visibility = v;
+        }
+
+        private void InstallAndExit()
+        {
+            if (!File.Exists(_installerPath))
+            {
+                SetStatus("인스톨러 파일을 찾을 수 없습니다.");
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName  = _installerPath,
+                    UseShellExecute = true   // 관리자 권한 UAC 프롬프트 허용
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"설치 시작 실패: {ex.Message}", "오류",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // 인스톨러 실행 → 현재 앱 종료
+            System.Windows.Application.Current.Shutdown();
+        }
+
+        private void LaunchMainWindow()
+        {
+            if (_launched) return;
+            _launched = true;
+
+            var main = new MainWindow();
+            System.Windows.Application.Current.MainWindow = main;
+            main.Show();
+            Close();
+        }
+    }
+}

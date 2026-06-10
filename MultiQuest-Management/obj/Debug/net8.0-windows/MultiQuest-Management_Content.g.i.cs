@@ -49,5 +49,7 @@
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/storywing_icon9.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/wifi.png")]
 [assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("images/worldmap.png")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("version.txt")]
+[assembly: System.Windows.Resources.AssemblyAssociatedContentFileAttribute("edition.txt")]
 
 

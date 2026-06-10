@@ -1,0 +1,171 @@
+﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace MultiQuest_Management
+{
+    public partial class UpdateWindow : Window
+    {
+        private CancellationTokenSource _cts = new();
+        private string _installerPath = Path.Combine(Path.GetTempPath(), "MultiQuestSetup.exe");
+        private bool _updateReady;
+        private bool _launched;
+
+        public UpdateWindow()
+        {
+            InitializeComponent();
+            SkipBtn.Content    = "\uac74\ub108\ub6f0\uae30";
+            ActionBtn.Content  = "\uc5c5\ub370\uc774\ud2b8";
+            SkipBtn.Visibility = Visibility.Collapsed;
+            StatusText.Text   = "\uc5c5\ub370\uc774\ud2b8 \ud655\uc778 \uc911...";
+            Loaded += async (_, _) => await RunUpdateFlowAsync();
+        }
+
+        private async Task RunUpdateFlowAsync()
+        {
+            try
+            {
+                SetStatus("\uc5c5\ub370\uc774\ud2b8 \uc11c\ubc84\uc5d0 \uc5f0\uacb0 \uc911...");
+                var (hasUpdate, remoteVer, edition) = await UpdateService.CheckForUpdateAsync(_cts.Token);
+
+                string localVer = UpdateService.GetLocalVersion();
+                string editionLabel = edition == UpdateService.EditionFull ? "Full" : "Basic";
+                VersionText.Text = $"[{editionLabel}]  \ud604\uc7ac: {localVer}   |   \ucd5c\uc2e0: {remoteVer}";
+
+                if (!hasUpdate)
+                {
+                    SetStatus("\ucd5c\uc2e0 \ubc84\uc804\uc785\ub2c8\ub2e4. \uba54\uc778 \ud654\uba74\uc744 \uc2dc\uc791\ud569\ub2c8\ub2e4...");
+                    SkipBtn.Visibility = Visibility.Collapsed;
+                    await Task.Delay(1000, _cts.Token);
+                    LaunchMainWindow();
+                    return;
+                }
+
+                SetStatus($"\uc0c8 \ubc84\uc804({remoteVer})\uc774 \uc788\uc2b5\ub2c8\ub2e4. \uc5c5\ub370\uc774\ud2b8\ud558\uc2dc\uaca0\uc2b5\ub2c8\uae4c?");
+                ActionBtn.Content    = "\uc5c5\ub370\uc774\ud2b8";
+                ActionBtn.Visibility = Visibility.Visible;
+                SkipBtn.Visibility   = Visibility.Visible;
+            }
+            catch (OperationCanceledException)
+            {
+                LaunchMainWindow();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"\uc5c5\ub370\uc774\ud2b8 \ud655\uc778 \uc2e4\ud328: {ex.Message}");
+                VersionText.Text = "\ub124\ud2b8\uc6cc\ud06c \uc624\ub958 \u2014 \uba54\uc778 \ud654\uba74\uc744 \uc2dc\uc791\ud569\ub2c8\ub2e4.";
+                SkipBtn.Visibility = Visibility.Visible;
+                await Task.Delay(2000);
+                LaunchMainWindow();
+            }
+        }
+
+        private async void ActionBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_updateReady)
+            {
+                InstallAndExit();
+                return;
+            }
+
+            ActionBtn.IsEnabled = false;
+            SkipBtn.IsEnabled   = false;
+            ActionBtn.Content   = "\ub2e4\uc6b4\ub85c\ub4dc \uc911...";
+            ShowProgress(true);
+            SetStatus("\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\ub294 \uc911...");
+
+            try
+            {
+                var progress = new Progress<double>(v =>
+                {
+                    int pct = (int)(v * 100);
+                    ProgressBar.Value = pct;
+                    ProgressText.Text = $"{pct}%";
+                });
+
+                await UpdateService.DownloadInstallerAsync(_installerPath, progress, _cts.Token);
+
+                ProgressBar.Value   = 100;
+                ProgressText.Text   = "100%";
+                SetStatus("\ub2e4\uc6b4\ub85c\ub4dc \uc644\ub8cc! '\uc124\uce58' \ubc84\ud2bc\uc744 \ub20c\ub7ec \uc124\uce58\ub97c \uc2dc\uc791\ud558\uc138\uc694.");
+                ActionBtn.Content   = "\uc124\uce58";
+                ActionBtn.IsEnabled = true;
+                _updateReady        = true;
+            }
+            catch (OperationCanceledException)
+            {
+                SetStatus("\ub2e4\uc6b4\ub85c\ub4dc\uac00 \ucde8\uc18c\ub418\uc5c8\uc2b5\ub2c8\ub2e4.");
+                ShowProgress(false);
+                ActionBtn.Content   = "\uc5c5\ub370\uc774\ud2b8";
+                ActionBtn.IsEnabled = true;
+                SkipBtn.IsEnabled   = true;
+                _updateReady        = false;
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"\ub2e4\uc6b4\ub85c\ub4dc \uc2e4\ud328: {ex.Message}");
+                ShowProgress(false);
+                ActionBtn.Content   = "\uc7ac\uc2dc\ub3c4";
+                ActionBtn.IsEnabled = true;
+                SkipBtn.IsEnabled   = true;
+            }
+        }
+
+        private void SkipBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _cts.Cancel();
+            LaunchMainWindow();
+        }
+
+        private void SetStatus(string msg) => StatusText.Text = msg;
+
+        private void ShowProgress(bool visible)
+        {
+            var v = visible ? Visibility.Visible : Visibility.Collapsed;
+            ProgressBar.Visibility  = v;
+            ProgressText.Visibility = v;
+        }
+
+        private void InstallAndExit()
+        {
+            if (!File.Exists(_installerPath))
+            {
+                SetStatus("\uc778\uc2a4\ud1a8\ub7ec \ud30c\uc77c\uc744 \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.");
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName        = _installerPath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show(
+                    $"\uc124\uce58 \uc2dc\uc791 \uc2e4\ud328: {ex.Message}",
+                    "\uc624\ub958",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            System.Windows.Application.Current.Shutdown();
+        }
+
+        private void LaunchMainWindow()
+        {
+            if (_launched) return;
+            _launched = true;
+
+            var main = new MainWindow();
+            System.Windows.Application.Current.MainWindow = main;
+            main.Show();
+            Close();
+        }
+    }
+}

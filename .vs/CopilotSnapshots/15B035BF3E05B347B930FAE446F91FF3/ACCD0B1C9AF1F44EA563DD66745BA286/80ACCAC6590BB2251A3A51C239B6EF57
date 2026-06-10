@@ -1,0 +1,96 @@
+﻿using System;
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MultiQuest_Management
+{
+    // Google Cloud Storage public bucket auto-update service.
+    //
+    // [GCS Setup]
+    // 1. Google Cloud Console -> Cloud Storage -> Create bucket
+    // 2. Bucket permissions: grant "Storage Object Viewer" to allUsers (public read)
+    // 3. Upload two files to the bucket:
+    //      version.txt         -- latest version string only (e.g. 1.0.1)
+    //      MultiQuestSetup.exe -- installer built with Inno Setup or NSIS
+    // 4. Replace BucketName constant below with your actual bucket name
+    //
+    // [Release procedure]
+    // 1. Edit version.txt in the project to the new version (e.g. 1.0.1)
+    // 2. Build Release and create installer (MultiQuestSetup.exe)
+    //    - The installer must also overwrite version.txt in the install directory
+    // 3. Upload version.txt and MultiQuestSetup.exe to the GCS bucket
+    internal static class UpdateService
+    {
+        // Replace with your actual GCS bucket name
+        private const string BucketName = "multiquest-update";
+
+        private static readonly string VersionFileUrl =
+            $"https://storage.googleapis.com/{BucketName}/version.txt";
+        private static readonly string InstallerUrl =
+            $"https://storage.googleapis.com/{BucketName}/MultiQuestManagerment_Setup.exe";
+
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+
+        // Path to version.txt in the install directory
+        public static string LocalVersionPath =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.txt");
+
+        // Returns local version string, or "0.0.0" if file not found
+        public static string GetLocalVersion()
+        {
+            try
+            {
+                if (File.Exists(LocalVersionPath))
+                    return File.ReadAllText(LocalVersionPath).Trim();
+            }
+            catch { }
+            return "0.0.0";
+        }
+
+        // Compares GCS version.txt with local version
+        // Returns (hasUpdate, remoteVersion)
+        public static async Task<(bool hasUpdate, string remoteVersion)> CheckForUpdateAsync(
+            CancellationToken token)
+        {
+            string remote = (await _http.GetStringAsync(VersionFileUrl, token)).Trim();
+            string local  = GetLocalVersion();
+
+            bool hasUpdate = Version.TryParse(remote, out var rv) &&
+                             Version.TryParse(local,  out var lv) &&
+                             rv > lv;
+
+            return (hasUpdate, remote);
+        }
+
+        // Downloads the installer from GCS to destPath.
+        // progress reports 0.0 to 1.0
+        public static async Task DownloadInstallerAsync(
+            string destPath, IProgress<double> progress, CancellationToken token)
+        {
+            using var response = await _http.GetAsync(
+                InstallerUrl, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+
+            long totalBytes = response.Content.Headers.ContentLength ?? -1;
+            await using var src = await response.Content.ReadAsStreamAsync(token);
+            await using var dst = File.Create(destPath);
+
+            var buffer = new byte[65536];
+            long downloaded = 0;
+            int read;
+
+            while ((read = await src.ReadAsync(buffer, token)) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read), token);
+                downloaded += read;
+                if (totalBytes > 0)
+                    progress?.Report((double)downloaded / totalBytes);
+            }
+        }
+    }
+}
