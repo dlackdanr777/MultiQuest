@@ -248,9 +248,8 @@
                 <!-- 아이콘 카드 -->
                 <Border Grid.Row="1" Style="{StaticResource IconCard}" Margin="0,8,0,0"
                         HorizontalAlignment="Right" VerticalAlignment="Top">
-                    <Grid x:Name="IconButtonGrid" Width="160" Height="480">
+                    <Grid x:Name="IconButtonGrid" Width="190" Height="475">
                         <Grid.RowDefinitions>
-                            <RowDefinition/>
                             <RowDefinition/>
                             <RowDefinition/>
                             <RowDefinition/>
@@ -262,52 +261,59 @@
                             <ColumnDefinition/>
                         </Grid.ColumnDefinitions>
 
-                        <Button Grid.Row="0" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="0" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="Images/FireSafety.png" Stretch="UniformToFill"/>
-                        </Button>
-                        <Button Grid.Row="0" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="1" Background="#00000000" BorderBrush="#00707070">
-                            <Image Source="Images/SolarSystem.png" Stretch="UniformToFill"/>
-                        </Button>
-                        <Button Grid.Row="1" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="2" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="Images/OceanAdventure.png" Stretch="UniformToFill"/>
-                        </Button>
-                        <Button Grid.Row="1" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="3" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                        <!-- Tag=0: 영어마을 -->
+                        <Button Grid.Row="0" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="0" Background="#00000000" BorderBrush="#00707070">
                             <Image Source="Images/EnglishTown.png" Stretch="UniformToFill"/>
                         </Button>
-
-                        <Button Grid.Row="2" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="4" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="/KoreaHistory.png" Stretch="UniformToFill"/>
+                        <!-- Tag=1: 해양탐험 -->
+                        <Button Grid.Row="0" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="1" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/OceanAdventure.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="2" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="10" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="/Images/Musium.png" Stretch="UniformToFill"/>
+                        <!-- Tag=2: 한국사 -->
+                        <Button Grid.Row="1" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="2" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/KoreaHistory.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="3" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
+                        <!-- Tag=3: 태양계 -->
+                        <Button Grid.Row="1" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="3" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/SolarSystem.png" Stretch="UniformToFill"/>
+                        </Button>
+                        <!-- Tag=4: 소방안전 -->
+                        <Button Grid.Row="2" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="4" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/FireSafety.png" Stretch="UniformToFill"/>
+                        </Button>
+                        <!-- Tag=5: 쥬라기공원 -->
+                        <Button Grid.Row="2" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="5" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/Jurassic.png" Stretch="UniformToFill"/>
+                        </Button>
+                        <!-- Tag=6: 브레인팝 -->
+                        <Button Grid.Row="3" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="6" Background="#00000000" BorderBrush="#00707070">
                             <Image Source="/BrainPop.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="3" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="/Images/SmartFarm.png" Stretch="UniformToFill"/>
+                        <!-- Tag=7: 스마트팜 -->
+                        <Button Grid.Row="3" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="7" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/SmartFarm.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="4" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="11" Background="#00000000" BorderBrush="#00707070" Foreground="#00000000">
-                            <Image Source="/Images/Coding.png" Stretch="UniformToFill"/>
+                        <!-- Tag=8: 박물관 -->
+                        <Button Grid.Row="4" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="8" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/Musium.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="5" Grid.Column="0" Margin="1" Click="StartAppBtn_Click" Tag="8" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                            <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>오션</Run><LineBreak/><Run>관람 버전</Run></TextBlock>
+                        <!-- Tag=9: 세계여행 -->
+                        <Button Grid.Row="4" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="9" Background="#00000000" BorderBrush="#00707070">
+                            <Image Source="Images/WorldMap.png" Stretch="UniformToFill"/>
                         </Button>
-                        <Button Grid.Row="5" Grid.Column="1" Margin="1" Click="StartAppBtn_Click" Tag="9" Background="#00000000" BorderBrush="#00707070" Foreground="{StaticResource Text}">
-                            <TextBlock TextAlignment="Center" FontWeight="Bold" Width="69"> <Run>우주</Run><LineBreak/><Run>관람 버전</Run></TextBlock>
-                        </Button>
+
                     </Grid>
                 </Border>
 
                 <!-- Device Stop -->
-                <Button Grid.Row="3"
+                <Button Grid.Row="2"
                         Content="Stop App"
                         Click ="StopAppBtn_Click"
                         HorizontalAlignment="Right"
-                        Width="200" Height="50"
+                        Width="212" Height="50"
                         FontSize="20" FontWeight="Bold"
                         Style="{StaticResource NeonButton}"
-                        Foreground="{StaticResource Bad}" />
+                        Foreground="{StaticResource Bad}" VerticalAlignment="Bottom" />
             </Grid>
         </Grid>
     </DockPanel>

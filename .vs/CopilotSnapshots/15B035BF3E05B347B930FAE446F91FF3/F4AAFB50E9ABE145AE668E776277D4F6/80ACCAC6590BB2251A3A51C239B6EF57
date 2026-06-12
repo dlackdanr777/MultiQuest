@@ -1,0 +1,129 @@
+﻿using System;
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MultiQuest_Management
+{
+    // Google Cloud Storage auto-update service with edition support.
+    //
+    // GCS bucket folder structure:
+    //   bucket/
+    //     basic/version.txt          -- version for Basic edition (no Coding/English)
+    //     basic/MultiQuestSetup.exe  -- installer for Basic edition
+    //     full/version.txt           -- version for Full edition (with Coding/English)
+    //     full/MultiQuestSetup.exe   -- installer for Full edition
+    //
+    // The local edition is determined by edition.txt in the install directory.
+    //   "basic" -> uses basic/ folder
+    //   "full"  -> uses full/ folder
+    //
+    // Release procedure:
+    //   1. Update version.txt in the project to new version (e.g. 1.0.1)
+    //   2. Build Release and create installer (MultiQuestSetup.exe)
+    //      - Installer must overwrite version.txt AND edition.txt in install directory
+    //   3. Upload version.txt and MultiQuestSetup.exe to the matching GCS folder
+    internal static class UpdateService
+    {
+        // Replace with your actual GCS bucket name
+        private const string BucketName = "multiquest_update";
+
+        // Edition values stored in edition.txt
+        public const string EditionBasic = "basic";
+        public const string EditionFull  = "full";
+
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+
+        // Path to version.txt in the install directory
+        public static string LocalVersionPath =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.txt");
+
+        // Path to edition.txt in the install directory
+        public static string LocalEditionPath =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "edition.txt");
+
+        // Returns "basic" or "full" (defaults to "basic" if file missing)
+        public static string GetLocalEdition()
+        {
+            try
+            {
+                if (File.Exists(LocalEditionPath))
+                {
+                    var val = File.ReadAllText(LocalEditionPath).Trim().ToLowerInvariant();
+                    if (val == EditionFull) return EditionFull;
+                }
+            }
+            catch { }
+            return EditionBasic;
+        }
+
+        // Returns local version string, or "0.0.0" if file not found
+        public static string GetLocalVersion()
+        {
+            try
+            {
+                if (File.Exists(LocalVersionPath))
+                    return File.ReadAllText(LocalVersionPath).Trim();
+            }
+            catch { }
+            return "0.0.0";
+        }
+
+        // GCS base URL for the current edition folder
+        private static string GetEditionBaseUrl()
+        {
+            string edition = GetLocalEdition();
+            return $"https://storage.googleapis.com/{BucketName}/{edition}";
+        }
+
+        // Compares GCS version.txt with local version
+        // Returns (hasUpdate, remoteVersion, edition)
+        public static async Task<(bool hasUpdate, string remoteVersion, string edition)> CheckForUpdateAsync(
+            CancellationToken token)
+        {
+            string edition    = GetLocalEdition();
+            string versionUrl = $"{GetEditionBaseUrl()}/version.txt";
+            string remote     = (await _http.GetStringAsync(versionUrl, token)).Trim();
+            string local      = GetLocalVersion();
+
+            bool hasUpdate = Version.TryParse(remote, out var rv) &&
+                             Version.TryParse(local,  out var lv) &&
+                             rv > lv;
+
+            return (hasUpdate, remote, edition);
+        }
+
+        // Downloads the installer for the current edition from GCS to destPath.
+        // progress reports 0.0 to 1.0
+        public static async Task DownloadInstallerAsync(
+            string destPath, IProgress<double> progress, CancellationToken token)
+        {
+            string installerUrl = $"{GetEditionBaseUrl()}/MultiQuestManagerment_Setup.exe";
+
+            using var response = await _http.GetAsync(
+                installerUrl, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+
+            long totalBytes = response.Content.Headers.ContentLength ?? -1;
+            await using var src = await response.Content.ReadAsStreamAsync(token);
+            await using var dst = File.Create(destPath);
+
+            var buffer = new byte[65536];
+            long downloaded = 0;
+            int read;
+
+            while ((read = await src.ReadAsync(buffer, token)) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read), token);
+                downloaded += read;
+                if (totalBytes > 0)
+                    progress?.Report((double)downloaded / totalBytes);
+            }
+        }
+    }
+}
