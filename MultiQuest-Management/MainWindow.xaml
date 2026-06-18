@@ -94,14 +94,7 @@ TextOptions.TextRenderingMode="ClearType">
             <Setter Property="CornerRadius"    Value="8"/>
             <Setter Property="BorderBrush"     Value="#253447"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background">
-                <Setter.Value>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#0D1420" Offset="0"/>
-                        <GradientStop Color="#0B1019" Offset="1"/>
-                    </LinearGradientBrush>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Background"      Value="#000000"/>
         </Style>
 
         <!-- 네온 미니 버튼 (타일 내) -->
