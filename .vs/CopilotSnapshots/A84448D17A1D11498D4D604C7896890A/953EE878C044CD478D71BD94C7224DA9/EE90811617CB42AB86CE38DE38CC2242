@@ -77,7 +77,6 @@ namespace MultiQuest_Management
         private readonly object _missLock = new();
 
         private bool _isShuttingDown; // 창 종료 중 여부
-        private const bool KillAdbServerOnExit = false; // true 시 앱 종료 때 adb kill-server 실행
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
@@ -258,49 +257,42 @@ namespace MultiQuest_Management
             string adbOutput = RunCmd("adb devices", 3000);
             var lines = adbOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
+            // USB(비-IP)로 연결된 기기의 시리얼 목록을 확보하여 중복 추가 방지
+            var nonIpSerials = GetNonIpAdbSerials();
+
             foreach (var line in lines)
             {
-                if (!line.TrimEnd().EndsWith("device")) continue;
-
-                var parts = line.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 1) continue;
-
-                string adbTarget = parts[0];
-                if (Devices.Any(d => d.Ip == adbTarget)) continue;
-
-                string serial = ResolveDeviceSerial(adbTarget);
-
-                // 같은 시리얼이 이미 등록된 경우 중복 추가 방지
-                if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
-                    Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)))
-                    continue;
-
-                AddDevice(new Device
+                if (line.TrimEnd().EndsWith("device"))
                 {
-                    Serial = serial,
-                    Ip = adbTarget,
-                    Status = "Connected"
-                });
+                    var parts = line.Split(new[] { '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0)
+                    {
+                        string addr = parts[0];
+                        if (!IsValidIpEndpoint(addr)) continue; // IP 형식이 아니면 무시
+                        if (Devices.Any(d => d.Ip == addr)) continue; // 이미 같은 주소 존재
+
+                        string serial = RunCmdWithRetry($"adb -s {addr} shell getprop ro.serialno", 1000, 5, 300).Trim();
+                        if (string.IsNullOrEmpty(serial) || serial.Contains("not found") || serial.StartsWith("adb.exe"))
+                            serial = "UnknownSerial";
+
+                        // 같은 시리얼이 이미 있거나, USB(비-IP) 연결 상태면 추가하지 않음
+                        if (!string.Equals(serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
+                            (Devices.Any(d => string.Equals(d.Serial, serial, StringComparison.OrdinalIgnoreCase)) ||
+                             nonIpSerials.Contains(serial)))
+                            continue;
+
+                        AddDevice(new Device
+                        {
+                            Serial = serial,
+                            Ip = addr,
+                            Status = "Connected"
+                        });
+                    }
+                }
             }
         }
 
-        /// <summary>ADB 대상(IP:PORT 또는 USB 시리얼)에서 실제 디바이스 시리얼을 가져온다.</summary>
-        private string ResolveDeviceSerial(string adbTarget)
-        {
-            string serial = RunCmdWithRetry(
-                $"adb -s {adbTarget} shell getprop ro.serialno",
-                1000, 2, 150).Trim();
-
-            if (string.IsNullOrWhiteSpace(serial) ||
-                serial.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                serial.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
-                serial.StartsWith("adb.exe", StringComparison.OrdinalIgnoreCase))
-                return "UnknownSerial";
-
-            return serial;
-        }
-
-        // ====================== 상태 타이머 =======================
+        // ====================== 상태 타이머 ======================
         private async void KeyEventTimer_Tick(object? sender, EventArgs e)
         {
             var connected = Devices.Where(d => d.Status == "Connected").ToList();
@@ -555,22 +547,6 @@ namespace MultiQuest_Management
         {
             if (device == null) return false;
 
-            // USB 시리얼 대상은 adb connect 대상이 아님 — get-state로 확인
-            if (!IsValidIpEndpoint(device.Ip))
-            {
-                string state = RunCmd($"adb -s {device.Ip} get-state", 1500).Trim();
-                if (state.Equals("device", StringComparison.OrdinalIgnoreCase))
-                {
-                    await Dispatcher.InvokeAsync(() => device.Status = "Connected");
-                    return true;
-                }
-                if (state.Contains("unauthorized", StringComparison.OrdinalIgnoreCase))
-                    await Dispatcher.InvokeAsync(() => device.Status = "Unauthorized");
-                else
-                    await Dispatcher.InvokeAsync(() => device.Status = "Offline");
-                return false;
-            }
-
             // 1) 기존 주소로 재연결 시도
             string output = RunCmdWithRetry($"adb connect {device.Ip}", 1500, 2, 200);
             if (output.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
@@ -725,13 +701,6 @@ namespace MultiQuest_Management
         {
             if ((sender as Button)?.DataContext is Device device)
             {
-                if (!IsValidIpEndpoint(device.Ip))
-                {
-                    // USB 시리얼 대상은 adb connect 불필요 — get-state로 확인
-                    string state = await Task.Run(() => RunCmd($"adb -s {device.Ip} get-state", 2000).Trim());
-                    device.Status = state.Equals("device", StringComparison.OrdinalIgnoreCase) ? "Connected" : "Failed";
-                    return;
-                }
                 string result = await Task.Run(() => RunCmd($"adb connect {device.Ip}", 5000));
                 device.Status = result.Contains("connected") ? "Connected" : "Failed";
             }
@@ -768,10 +737,6 @@ namespace MultiQuest_Management
             var (cropW, cropH, cropX, cropY, angleArg) = await Task.Run(() => GetQuestCropSettings(device.Ip, width, height));
             string cropArg = $"--crop={cropW}:{cropH}:{cropX}:{cropY}";
 
-            // 안정적인 display id 동적 선택 (절전/더미 display 오판정 방지)
-            string displayId = await Task.Run(() => PickStableDisplayId(device.Ip));
-            string displayArg = $"--display-id={displayId}";
-
             // 시도할 인수 세트: 1차(--video-buffer 포함), 2차(폴백 — 구버전 scrcpy 호환)
             // --window-width/height, --render-fit 제거: MoveWindow 단독으로 위치·크기 제어
             var argSets = new[]
@@ -780,12 +745,10 @@ namespace MultiQuest_Management
                 new[]
                 {
                     $"-s {device.Ip}",
-                    displayArg,
+                    "--display-id=0",
                     cropArg,
                     angleArg,
                     "--keep-active",
-                    "--stay-awake",
-                    "--screen-off-timeout=1800000",
                     "--video-codec=h264",
                     "--no-audio",
                     $"--video-bit-rate={bitrateMbps}M",
@@ -798,12 +761,10 @@ namespace MultiQuest_Management
                 new[]
                 {
                     $"-s {device.Ip}",
-                    displayArg,
+                    "--display-id=0",
                     cropArg,
                     angleArg,
                     "--keep-active",
-                    "--stay-awake",
-                    "--screen-off-timeout=1800000",
                     "--video-codec=h264",
                     "--no-audio",
                     $"--video-bit-rate={bitrateMbps}M",
@@ -815,9 +776,7 @@ namespace MultiQuest_Management
                 new[]
                 {
                     $"-s {device.Ip}",
-                    displayArg,
-                    "--keep-active",
-                    "--stay-awake",
+                    "--display-id=0",
                     "--no-audio",
                     $"--max-size={maxSize}",
                     $"--window-title=\"{windowTitle}\"",
@@ -1682,27 +1641,24 @@ namespace MultiQuest_Management
                 Debug.WriteLine($"adb 종료 중 오류 발생: {ex.Message}");
             }
 
-            // adb kill-server (KillAdbServerOnExit = true 때만 실행 — 기본값 false로 기존 인증 세션 유지)
-            if (KillAdbServerOnExit)
+            // adb kill-server 명령 실행
+            try
             {
-                try
+                var psi = new ProcessStartInfo
                 {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = _adbPath,
-                        Arguments = "kill-server",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    using (var process = Process.Start(psi))
-                    {
-                        process.WaitForExit(2000);
-                    }
-                }
-                catch (Exception ex)
+                    FileName = _adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(psi))
                 {
-                    Debug.WriteLine($"adb kill-server 실행 중 오류 발생: {ex.Message}");
+                    process.WaitForExit(2000);
                 }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"adb kill-server 실행 중 오류 발생: {ex.Message}");
             }
         }
 
@@ -1875,7 +1831,16 @@ namespace MultiQuest_Management
                     return;
                 }
 
-                // ADB 서버 시작 (kill-server 생략 — 기존 인증/세션 유지)
+                // 기존 ADB 서버 종료
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = _adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }).WaitForExit();
+
+                // ADB 서버 시작
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = _adbPath,
@@ -2224,6 +2189,7 @@ namespace MultiQuest_Management
         private void AddDevice(Device device)
         {
             if (device == null || string.IsNullOrEmpty(device.Ip)) { ShowMsg("유효하지 않은 기기 정보입니다."); return; }
+            if (!IsValidIpEndpoint(device.Ip)) return;
 
             // 같은 시리얼이 이미 컬렉션에 있으면 추가하지 않음 (UnknownSerial 제외)
             if (!string.IsNullOrWhiteSpace(device.Serial) &&
@@ -2231,9 +2197,8 @@ namespace MultiQuest_Management
                 Devices.Any(d => string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase)))
                 return;
 
-            // IP 대상인 경우에만: USB(비-IP)로 이미 연결된 Quest면 중복 추가 방지
-            if (IsValidIpEndpoint(device.Ip) &&
-                !string.IsNullOrWhiteSpace(device.Serial) &&
+            // GetNonIpAdbSerials()는 adb devices를 다시 실행하므로 한 번만 호출해 재사용
+            if (!string.IsNullOrWhiteSpace(device.Serial) &&
                 !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase))
             {
                 var nonIpSerials = GetNonIpAdbSerials();
