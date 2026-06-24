@@ -792,7 +792,7 @@ namespace MultiQuest_Management
             // --window-width/height, --render-fit 제거: MoveWindow 단독으로 위치·크기 제어
             var argSets = new[]
             {
-                // 1차: scrcpy v4.0 옵션 (안정성 우선: video-buffer 500으로 증가)
+                // 1차: scrcpy v4.0 옵션
                 new[]
                 {
                     $"-s {device.Ip}",
@@ -807,7 +807,7 @@ namespace MultiQuest_Management
                     $"--video-bit-rate={bitrateMbps}M",
                     $"--max-fps={maxFps}",
                     $"--max-size={maxSize}",
-                    "--video-buffer=500",
+                    "--video-buffer=200",
                     $"--window-title=\"{windowTitle}\"",
                 },
                 // 2차 폴백: --video-buffer 제거

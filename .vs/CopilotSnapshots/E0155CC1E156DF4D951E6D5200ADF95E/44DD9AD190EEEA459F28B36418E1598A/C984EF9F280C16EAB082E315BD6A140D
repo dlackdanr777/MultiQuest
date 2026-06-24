@@ -773,10 +773,9 @@ namespace MultiQuest_Management
             if (device == null || device.Status != "Connected") return null;
 
             int connectedCount = Devices.Count(d => d.IsConnected);
-            // 안정성 우선: bitrate/fps 보수적으로 설정
-            int bitrateMbps = connectedCount >= 5 ? 2 : 3;
-            int maxFps      = 15;
-            int maxSize     = connectedCount >= 5 ? 360 : 480;
+            int bitrateMbps = connectedCount >= 9 ? 2 : connectedCount >= 5 ? 3 : 4;
+            int maxFps      = connectedCount >= 9 ? 15 : 20;
+            int maxSize     = connectedCount >= 9 ? 360 : 480;
             string windowTitle = device.Name ?? device.Ip;
 
             // 기기 모델별 좌안 영역을 타일 비율에 맞게 crop + angle 동적 결정
@@ -792,7 +791,7 @@ namespace MultiQuest_Management
             // --window-width/height, --render-fit 제거: MoveWindow 단독으로 위치·크기 제어
             var argSets = new[]
             {
-                // 1차: scrcpy v4.0 옵션 (안정성 우선: video-buffer 500으로 증가)
+                // 1차: scrcpy v4.0 옵션
                 new[]
                 {
                     $"-s {device.Ip}",
@@ -807,7 +806,7 @@ namespace MultiQuest_Management
                     $"--video-bit-rate={bitrateMbps}M",
                     $"--max-fps={maxFps}",
                     $"--max-size={maxSize}",
-                    "--video-buffer=500",
+                    "--video-buffer=200",
                     $"--window-title=\"{windowTitle}\"",
                 },
                 // 2차 폴백: --video-buffer 제거
@@ -888,18 +887,13 @@ namespace MultiQuest_Management
 
                     if (!hasWindow || newProc.HasExited)
                     {
-                        // scrcpy가 즉시 종료된 경우 stderr/stdout로 원인 파악
+                        // scrcpy가 즉시 종료된 경우 stderr로 원인 파악
                         string stderr = "";
-                        string stdout = "";
                         try
                         {
                             if (newProc.HasExited)
-                            {
                                 stderr = await Task.WhenAny(stderrTask, Task.Delay(500, CancellationToken.None)) == stderrTask
                                     ? stderrTask.Result : "";
-                                stdout = await Task.WhenAny(stdoutTask, Task.Delay(500, CancellationToken.None)) == stdoutTask
-                                    ? stdoutTask.Result : "";
-                            }
                         }
                         catch { }
 
@@ -908,8 +902,22 @@ namespace MultiQuest_Management
 
                         Trace.WriteLine($"[scrcpy] 실패 (exitCode={exitCode}): {stderr?.Trim()}");
 
-                        // 중요한 오류 메시지를 device에 기록
-                        device.MirrorError = $"[exitCode={exitCode}]\n{PickImportantScrcpyError(stdout, stderr, exitCode)}";
+                        // 마지막 실패 원인을 device에 기록
+                        if (!string.IsNullOrWhiteSpace(stderr))
+                        {
+                            string reason = stderr.Trim();
+                            // 너무 길면 첫 줄만
+                            var firstLine = reason.Split('\n')[0].Trim();
+                            device.MirrorError = $"[exitCode={exitCode}]\n{firstLine}";
+                        }
+                        else if (exitCode != -1)
+                        {
+                            device.MirrorError = $"scrcpy 실행 실패 (exitCode={exitCode})";
+                        }
+                        else
+                        {
+                            device.MirrorError = $"창 감지 타임아웃 ({maxWaitMs/1000}초)\nscrcpy가 실행됐지만 창이 열리지 않음";
+                        }
 
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
                         newProc = null;
@@ -2596,35 +2604,6 @@ namespace MultiQuest_Management
 
                 _scrcpyRestartAttempts.Remove(mirrorKey);
             }
-        }
-
-        /// <summary>
-        /// scrcpy 출력에서 중요한 오류 메시지를 추출한다.
-        /// ERROR, WARN, failed 등이 포함된 줄을 우선적으로 표시한다.
-        /// </summary>
-        private static string PickImportantScrcpyError(string stdout, string stderr, int exitCode)
-        {
-            string combined = ((stderr ?? "") + "\n" + (stdout ?? "")).Trim();
-
-            if (string.IsNullOrWhiteSpace(combined))
-                return $"scrcpy 종료됨 (exitCode={exitCode})";
-
-            var lines = combined
-                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .ToList();
-
-            string important = lines.FirstOrDefault(x =>
-                x.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("WARN", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("disconnect", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("device offline", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("device not found", StringComparison.OrdinalIgnoreCase));
-
-            return important ?? lines.LastOrDefault() ?? $"scrcpy 종료됨 (exitCode={exitCode})";
         }
 
         private void StopMirrorForDevice(Device device)

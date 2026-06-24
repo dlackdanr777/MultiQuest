@@ -73,7 +73,7 @@ namespace MultiQuest_Management
 
         // 네트워크 안정성: 연속 실패 카운트 및 임계값(유예 기간)
         private readonly Dictionary<string, int> _missCounts = new(StringComparer.OrdinalIgnoreCase);
-        private const int MissThreshold = 6; // 연속 실패 허용 횟수 (3→6: 약 60초 유예)
+        private const int MissThreshold = 3; // 연속 실패 허용 횟수
         private readonly object _missLock = new();
 
         private bool _isShuttingDown; // 창 종료 중 여부
@@ -81,8 +81,8 @@ namespace MultiQuest_Management
         private volatile bool _isConnCheckRunning; // 상태 체크 타이머 중복 방지
         private volatile bool _isBatteryCheckRunning; // 배터리 체크 타이머 중복 방지
 
-        // 동시 실행 scrcpy 제한 — 안정성 우선으로 6으로 제한 (16→6)
-        private static readonly int ScrcpyMaxConcurrency = 6;
+        // 동시 실행 scrcpy 제한 — 16대 동시 미러링 지원
+        private static readonly int ScrcpyMaxConcurrency = 16;
         private static readonly SemaphoreSlim _scrcpySemaphore = new(ScrcpyMaxConcurrency, ScrcpyMaxConcurrency);
 
         // 자동 재연결 상태 관리
@@ -108,9 +108,6 @@ namespace MultiQuest_Management
 
         // scrcpy 자동 재시작 시도 횟수 (지수 백오프)
         private readonly Dictionary<string, int> _scrcpyRestartAttempts = new(StringComparer.OrdinalIgnoreCase);
-
-        // scrcpy 재시작 취소 토큰 (Refresh/Stop 시 진행 중인 재시작 취소용)
-        private readonly Dictionary<string, CancellationTokenSource> _mirrorRestartTokens = new(StringComparer.OrdinalIgnoreCase);
 
         // 디바이스 서치 진행 중 여부 (서치 중에는 새 scrcpy 창 표시 억제)
         private bool _isScanning;
@@ -453,10 +450,6 @@ namespace MultiQuest_Management
                             miss = _missCounts[ip];
                         }
 
-                        // 상태를 Failed로 바꾸기 전부터 조용히 재연결 시도
-                        if (miss >= 1)
-                            ScheduleReconnect(device);
-
                         if (miss >= MissThreshold)
                         {
                             // 임계값 도달 시 실제로 오프라인 처리
@@ -489,29 +482,21 @@ namespace MultiQuest_Management
             EnsureMissingMirrorProcesses();
         }
 
-        /// <summary>Connected인데 scrcpy 프로세스가 없는 기기를 감지해 재시작을 예약한다.</summary>
+        /// <summary>Connected인데 scrcpy 프로세스가 없는 기기를 감지해 재시작한다.</summary>
         private void EnsureMissingMirrorProcesses()
         {
             foreach (var device in Devices.Where(d => d.IsConnected).ToList())
             {
-                string mirrorKey = device.Ip;
-
                 bool hasProc;
-                bool starting;
-                bool scheduled;
-
                 lock (_mirrorLock)
                 {
-                    hasProc = _scrcpy.TryGetValue(mirrorKey, out var p) && !p.HasExited;
-                    starting = _mirrorStarting.Contains(mirrorKey);
-                    scheduled = _mirrorRestartTokens.ContainsKey(mirrorKey);
+                    hasProc = _scrcpy.TryGetValue(device.Ip, out var p) && !p.HasExited;
                 }
-
-                if (hasProc || starting || scheduled)
-                    continue;
-
-                Trace.WriteLine($"[MirrorWatchdog] {device.Name}({mirrorKey}) scrcpy 없음 → 재시작 예약");
-                ScheduleMirrorRestart(device, mirrorKey, "missing scrcpy process");
+                if (!hasProc)
+                {
+                    Trace.WriteLine($"[MirrorWatchdog] {device.Name}({device.Ip}) scrcpy 없음 → 재시작");
+                    StartMirrorForDevice(device);
+                }
             }
         }
 
@@ -773,10 +758,9 @@ namespace MultiQuest_Management
             if (device == null || device.Status != "Connected") return null;
 
             int connectedCount = Devices.Count(d => d.IsConnected);
-            // 안정성 우선: bitrate/fps 보수적으로 설정
-            int bitrateMbps = connectedCount >= 5 ? 2 : 3;
-            int maxFps      = 15;
-            int maxSize     = connectedCount >= 5 ? 360 : 480;
+            int bitrateMbps = connectedCount >= 9 ? 2 : connectedCount >= 5 ? 3 : 4;
+            int maxFps      = connectedCount >= 9 ? 15 : 20;
+            int maxSize     = connectedCount >= 9 ? 360 : 480;
             string windowTitle = device.Name ?? device.Ip;
 
             // 기기 모델별 좌안 영역을 타일 비율에 맞게 crop + angle 동적 결정
@@ -792,7 +776,7 @@ namespace MultiQuest_Management
             // --window-width/height, --render-fit 제거: MoveWindow 단독으로 위치·크기 제어
             var argSets = new[]
             {
-                // 1차: scrcpy v4.0 옵션 (안정성 우선: video-buffer 500으로 증가)
+                // 1차: scrcpy v4.0 옵션
                 new[]
                 {
                     $"-s {device.Ip}",
@@ -807,7 +791,7 @@ namespace MultiQuest_Management
                     $"--video-bit-rate={bitrateMbps}M",
                     $"--max-fps={maxFps}",
                     $"--max-size={maxSize}",
-                    "--video-buffer=500",
+                    "--video-buffer=200",
                     $"--window-title=\"{windowTitle}\"",
                 },
                 // 2차 폴백: --video-buffer 제거
@@ -888,18 +872,13 @@ namespace MultiQuest_Management
 
                     if (!hasWindow || newProc.HasExited)
                     {
-                        // scrcpy가 즉시 종료된 경우 stderr/stdout로 원인 파악
+                        // scrcpy가 즉시 종료된 경우 stderr로 원인 파악
                         string stderr = "";
-                        string stdout = "";
                         try
                         {
                             if (newProc.HasExited)
-                            {
                                 stderr = await Task.WhenAny(stderrTask, Task.Delay(500, CancellationToken.None)) == stderrTask
                                     ? stderrTask.Result : "";
-                                stdout = await Task.WhenAny(stdoutTask, Task.Delay(500, CancellationToken.None)) == stdoutTask
-                                    ? stdoutTask.Result : "";
-                            }
                         }
                         catch { }
 
@@ -908,8 +887,22 @@ namespace MultiQuest_Management
 
                         Trace.WriteLine($"[scrcpy] 실패 (exitCode={exitCode}): {stderr?.Trim()}");
 
-                        // 중요한 오류 메시지를 device에 기록
-                        device.MirrorError = $"[exitCode={exitCode}]\n{PickImportantScrcpyError(stdout, stderr, exitCode)}";
+                        // 마지막 실패 원인을 device에 기록
+                        if (!string.IsNullOrWhiteSpace(stderr))
+                        {
+                            string reason = stderr.Trim();
+                            // 너무 길면 첫 줄만
+                            var firstLine = reason.Split('\n')[0].Trim();
+                            device.MirrorError = $"[exitCode={exitCode}]\n{firstLine}";
+                        }
+                        else if (exitCode != -1)
+                        {
+                            device.MirrorError = $"scrcpy 실행 실패 (exitCode={exitCode})";
+                        }
+                        else
+                        {
+                            device.MirrorError = $"창 감지 타임아웃 ({maxWaitMs/1000}초)\nscrcpy가 실행됐지만 창이 열리지 않음";
+                        }
 
                         try { if (!newProc.HasExited) newProc.Kill(); } catch { }
                         newProc = null;
@@ -2344,29 +2337,21 @@ namespace MultiQuest_Management
 
         private readonly object _mirrorLock = new();
 
-        // ★ 수정: 살아있는 기존 scrcpy는 건드리지 않음 (자동 복구 환경에서 충돌 방지)
+        // ★ 수정: IP별 중복 실행 방지 플래그(_mirrorStarting)로 async void 재진입 차단
         private async void StartMirrorForDevice(Device device)
         {
-            if (device == null || !device.IsConnected) return;
-
-            string mirrorKey = device.Ip;
-
             lock (_mirrorLock)
             {
                 // 이미 이 IP에 대해 미러링 시작 중이면 무시
-                if (_mirrorStarting.Contains(mirrorKey))
-                    return;
+                if (_mirrorStarting.Contains(device.Ip)) return;
+                _mirrorStarting.Add(device.Ip);
 
-                // 기존 scrcpy가 살아있으면 건드리지 않음 (핵심 수정)
-                if (_scrcpy.TryGetValue(mirrorKey, out var existing))
+                // 기존 프로세스가 있으면 먼저 종료
+                if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
                 {
-                    if (!existing.HasExited)
-                        return;
-
-                    _scrcpy.Remove(mirrorKey);
+                    try { old.Kill(); } catch { }
+                    _scrcpy.Remove(device.Ip);
                 }
-
-                _mirrorStarting.Add(mirrorKey);
             }
 
             try
@@ -2403,260 +2388,103 @@ namespace MultiQuest_Management
                     (int)Math.Max(1, host.ActualWidth),
                     (int)Math.Max(1, host.ActualHeight),
                     CancellationToken.None);
-                if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero)
-                    return;
+                if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero) return;
 
                 lock (_mirrorLock)
                 {
-                    // await 중 다른 프로세스가 이미 정상 등록되었으면 새 프로세스는 종료
-                    if (_scrcpy.TryGetValue(mirrorKey, out var existing) && existing != proc && !existing.HasExited)
+                    // await 구간에 다른 프로세스가 이미 등록된 경우 새 것을 종료
+                    if (_scrcpy.TryGetValue(device.Ip, out var existing) && existing != proc)
                     {
                         try { if (!proc.HasExited) proc.Kill(); } catch { }
                         return;
                     }
-
-                    _scrcpy[mirrorKey] = proc;
-                    _scrcpyRestartAttempts.Remove(mirrorKey);
+                    _scrcpy[device.Ip] = proc;
                 }
 
-                RegisterScrcpyProcess(device, proc, mirrorKey);
+                RegisterScrcpyProcess(device, proc);
 
                 // Win32 창이 완전히 렌더링될 때까지 짧게 대기 후 임베드
                 // 서치 오버레이가 표시 중이면 Attach를 억제하고 pendingAttach에 등록
                 // (HideSearchOverlay에서 Attach 처리)
                 await Task.Delay(80);
+                // 항상 Attach(SetParent+스타일 제거)를 먼저 수행해 임베드 상태로 만든다.
+                // 스캔 중이거나 MetaDevice 패널이 아닌 경우에는 Attach 직후 창을 숨겨둔다.
+                // → MetaDevice로 돌아올 때 ShowAll 한 번으로 정상 표시됨
                 ScrcpyEmbedder.Attach(proc, host, this);
-
                 if (_isScanning || PanelMetaDevice.Visibility != Visibility.Visible)
                 {
                     ScrcpyEmbedder.HideWindow(proc.MainWindowHandle);
-
                     if (_isScanning)
-                        lock (_mirrorLock) { _pendingAttach.Add(mirrorKey); }
+                        lock (_mirrorLock) { _pendingAttach.Add(device.Ip); }
                 }
             }
             finally
             {
-                lock (_mirrorLock)
-                {
-                    _mirrorStarting.Remove(mirrorKey);
-                }
+                // 반드시 플래그 해제
+                lock (_mirrorLock) { _mirrorStarting.Remove(device.Ip); }
             }
         }
 
         /// <summary>
         /// proc에 Exited 핸들러를 등록한다.
-        /// PID 기반으로 이전 프로세스 종료 이벤트가 새 프로세스를 건드리지 못하게 방지한다.
+        /// 종료 시 _scrcpy에서 제거하고, 의도적 종료가 아니면 지수 백오프로 재시작한다.
         /// </summary>
-        private void RegisterScrcpyProcess(Device device, Process proc, string mirrorKey)
+        private void RegisterScrcpyProcess(Device device, Process proc)
         {
             proc.EnableRaisingEvents = true;
-
-            int exitedPid;
-            try { exitedPid = proc.Id; }
-            catch { return; }
-
-            proc.Exited += (_, __) =>
+            proc.Exited += async (_, __) =>
             {
-                bool shouldRestart = false;
+                lock (_mirrorLock) { _scrcpy.Remove(device.Ip); }
 
+                if (_isShuttingDown || !device.IsConnected) return;
+
+                int attempt;
                 lock (_mirrorLock)
                 {
-                    // 현재 등록된 프로세스가 방금 종료된 proc인지 확인
-                    if (_scrcpy.TryGetValue(mirrorKey, out var current))
-                    {
-                        int currentPid = -1;
-                        try { currentPid = current.Id; } catch { }
-
-                        if (currentPid == exitedPid)
-                        {
-                            _scrcpy.Remove(mirrorKey);
-                            shouldRestart = true;
-                        }
-                        else
-                        {
-                            // 이미 새 scrcpy가 붙어 있으면 이전 프로세스 종료 이벤트는 무시
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        // 이미 Refresh/Stop 쪽에서 제거한 경우도 무시
-                        return;
-                    }
+                    _scrcpyRestartAttempts.TryGetValue(device.Ip, out attempt);
+                    attempt = Math.Min(attempt + 1, 5);
+                    _scrcpyRestartAttempts[device.Ip] = attempt;
                 }
 
-                if (!shouldRestart || _isShuttingDown || !device.IsConnected)
-                    return;
+                int delayMs = attempt switch
+                {
+                    1 => 1000,
+                    2 => 3000,
+                    3 => 7000,
+                    _ => 15000
+                };
 
-                ScheduleMirrorRestart(device, mirrorKey, $"scrcpy exited pid={exitedPid}");
+                Trace.WriteLine($"[RegisterScrcpyProcess] {device.Name}({device.Ip}) scrcpy 종료, {delayMs}ms 후 재시작 (시도 {attempt})");
+                await Task.Delay(delayMs);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!_isShuttingDown && device.IsConnected)
+                    {
+                        lock (_mirrorLock) { _scrcpyRestartAttempts.Remove(device.Ip); }
+                        StartMirrorForDevice(device);
+                    }
+                });
             };
-        }
-
-        /// <summary>
-        /// 지수 백오프 방식으로 scrcpy 재시작을 예약한다.
-        /// 네트워크가 불안정할 때 루프를 방지하기 위해 1초→3초→7초→15초→30초 간격으로 재시도한다.
-        /// </summary>
-        private void ScheduleMirrorRestart(Device device, string mirrorKey, string reason)
-        {
-            CancellationTokenSource cts;
-            int attempt;
-
-            lock (_mirrorLock)
-            {
-                if (_mirrorRestartTokens.ContainsKey(mirrorKey))
-                    return;
-
-                _scrcpyRestartAttempts.TryGetValue(mirrorKey, out attempt);
-                attempt = Math.Min(attempt + 1, 8);
-                _scrcpyRestartAttempts[mirrorKey] = attempt;
-
-                cts = new CancellationTokenSource();
-                _mirrorRestartTokens[mirrorKey] = cts;
-            }
-
-            int delayMs = attempt switch
-            {
-                1 => 1000,
-                2 => 3000,
-                3 => 7000,
-                4 => 15000,
-                _ => 30000
-            };
-
-            Trace.WriteLine($"[MirrorRestart] {device.Name}({mirrorKey}) {reason}, {delayMs}ms 후 재시도 attempt={attempt}");
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(delayMs, cts.Token);
-
-                    if (cts.Token.IsCancellationRequested || _isShuttingDown)
-                        return;
-
-                    // ADB가 실제로 살아있는지 먼저 확인
-                    bool adbReady = device.IsConnected;
-
-                    if (!adbReady)
-                        adbReady = await TryReconnectDeviceAsync(device);
-
-                    if (!adbReady)
-                        return;
-
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        if (_isShuttingDown || !device.IsConnected)
-                            return;
-
-                        bool hasProc;
-                        lock (_mirrorLock)
-                        {
-                            hasProc = _scrcpy.TryGetValue(device.Ip, out var p) && !p.HasExited;
-                        }
-
-                        if (!hasProc)
-                            StartMirrorForDevice(device);
-                    });
-                }
-                catch (TaskCanceledException)
-                {
-                }
-                catch (Exception ex)
-                {
-                    Trace.WriteLine($"[MirrorRestart] 예외: {ex.Message}");
-                }
-                finally
-                {
-                    lock (_mirrorLock)
-                    {
-                        if (_mirrorRestartTokens.TryGetValue(mirrorKey, out var old) && ReferenceEquals(old, cts))
-                            _mirrorRestartTokens.Remove(mirrorKey);
-
-                        cts.Dispose();
-                    }
-                }
-            });
-        }
-
-        /// <summary>
-        /// 진행 중인 미러링 재시작 작업을 취소한다.
-        /// Refresh/Stop 버튼 클릭 시 호출하여 예약된 재시작이 새 프로세스를 방해하지 않도록 한다.
-        /// </summary>
-        private void CancelPendingMirrorRestart(string mirrorKey)
-        {
-            lock (_mirrorLock)
-            {
-                if (_mirrorRestartTokens.TryGetValue(mirrorKey, out var cts))
-                {
-                    try { cts.Cancel(); } catch { }
-                    _mirrorRestartTokens.Remove(mirrorKey);
-                    try { cts.Dispose(); } catch { }
-                }
-
-                _scrcpyRestartAttempts.Remove(mirrorKey);
-            }
-        }
-
-        /// <summary>
-        /// scrcpy 출력에서 중요한 오류 메시지를 추출한다.
-        /// ERROR, WARN, failed 등이 포함된 줄을 우선적으로 표시한다.
-        /// </summary>
-        private static string PickImportantScrcpyError(string stdout, string stderr, int exitCode)
-        {
-            string combined = ((stderr ?? "") + "\n" + (stdout ?? "")).Trim();
-
-            if (string.IsNullOrWhiteSpace(combined))
-                return $"scrcpy 종료됨 (exitCode={exitCode})";
-
-            var lines = combined
-                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .ToList();
-
-            string important = lines.FirstOrDefault(x =>
-                x.Contains("ERROR", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("WARN", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("disconnect", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("device offline", StringComparison.OrdinalIgnoreCase) ||
-                x.Contains("device not found", StringComparison.OrdinalIgnoreCase));
-
-            return important ?? lines.LastOrDefault() ?? $"scrcpy 종료됨 (exitCode={exitCode})";
         }
 
         private void StopMirrorForDevice(Device device)
         {
-            if (device == null || string.IsNullOrWhiteSpace(device.Ip)) return;
-
-            string mirrorKey = device.Ip;
-
-            // 1. 예약된 자동 재시작 취소
-            CancelPendingMirrorRestart(mirrorKey);
-
-            // 2. 프로세스 종료 및 제거
             lock (_mirrorLock)
             {
-                if (_scrcpy.TryGetValue(mirrorKey, out var p))
+                if (_scrcpy.TryGetValue(device.Ip, out var p))
                 {
                     try
                     {
                         var hwnd = p.MainWindowHandle;
-
+                        // Kill 전에 Win32 창 먼저 숨기기 — 입베드된 창이 화면에 남아 있는 문제 해결
                         if (hwnd != IntPtr.Zero)
                             ScrcpyEmbedder.HideWindow(hwnd);
-
-                        _scrcpy.Remove(mirrorKey);
-
-                        if (!p.HasExited)
-                            p.Kill();
+                        if (!p.HasExited) p.Kill();
                     }
                     catch { }
+                    _scrcpy.Remove(device.Ip);
                 }
-
-                _mirrorStarting.Remove(mirrorKey);
             }
         }
 

@@ -773,10 +773,9 @@ namespace MultiQuest_Management
             if (device == null || device.Status != "Connected") return null;
 
             int connectedCount = Devices.Count(d => d.IsConnected);
-            // 안정성 우선: bitrate/fps 보수적으로 설정
-            int bitrateMbps = connectedCount >= 5 ? 2 : 3;
-            int maxFps      = 15;
-            int maxSize     = connectedCount >= 5 ? 360 : 480;
+            int bitrateMbps = connectedCount >= 9 ? 2 : connectedCount >= 5 ? 3 : 4;
+            int maxFps      = connectedCount >= 9 ? 15 : 20;
+            int maxSize     = connectedCount >= 9 ? 360 : 480;
             string windowTitle = device.Name ?? device.Ip;
 
             // 기기 모델별 좌안 영역을 타일 비율에 맞게 crop + angle 동적 결정
@@ -792,7 +791,7 @@ namespace MultiQuest_Management
             // --window-width/height, --render-fit 제거: MoveWindow 단독으로 위치·크기 제어
             var argSets = new[]
             {
-                // 1차: scrcpy v4.0 옵션 (안정성 우선: video-buffer 500으로 증가)
+                // 1차: scrcpy v4.0 옵션
                 new[]
                 {
                     $"-s {device.Ip}",
@@ -807,7 +806,7 @@ namespace MultiQuest_Management
                     $"--video-bit-rate={bitrateMbps}M",
                     $"--max-fps={maxFps}",
                     $"--max-size={maxSize}",
-                    "--video-buffer=500",
+                    "--video-buffer=200",
                     $"--window-title=\"{windowTitle}\"",
                 },
                 // 2차 폴백: --video-buffer 제거
