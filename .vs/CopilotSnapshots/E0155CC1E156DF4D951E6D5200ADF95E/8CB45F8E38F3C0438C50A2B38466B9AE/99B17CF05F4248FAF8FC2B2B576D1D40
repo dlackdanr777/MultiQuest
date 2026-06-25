@@ -493,9 +493,6 @@ namespace MultiQuest_Management
 
             // 프로세스는 있지만 타일에 안 붙은 경우 재Attach (회색 배경 방지)
             EnsureAttachedMirrorWindows();
-
-            // Quest 시스템 UI 상태 체크 (Boundary/설정 화면 감지)
-            CheckSystemUIStatus();
         }
 
         /// <summary>Connected인데 scrcpy 프로세스가 없는 기기를 감지해 재시작을 예약한다.</summary>
@@ -556,40 +553,6 @@ namespace MultiQuest_Management
                     ScrcpyEmbedder.Attach(proc, host, this);
                     ScrcpyEmbedder.Adjust(proc, host, this);
                     ScrcpyEmbedder.ShowAll(new[] { proc });
-                }
-                catch { }
-            }
-        }
-
-        /// <summary>
-        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 주기적으로 체크한다.
-        /// 시스템 UI 활성 시 scrcpy 검은 화면은 정상 동작이므로 재시작을 억제한다.
-        /// </summary>
-        private void CheckSystemUIStatus()
-        {
-            foreach (var device in Devices.Where(d => d.IsConnected).ToList())
-            {
-                try
-                {
-                    bool wasActive = device.SystemUIActive;
-                    bool isActive = IsSystemUIActive(device.Ip);
-
-                    if (wasActive != isActive)
-                    {
-                        device.SystemUIActive = isActive;
-
-                        if (isActive)
-                        {
-                            // 시스템 UI 진입 → 검은 화면 오류 클리어
-                            device.MirrorError = null;
-                            Trace.WriteLine($"[SystemUI] {device.Name}: 시스템 UI 활성화 - 미러링 재시작 억제");
-                        }
-                        else
-                        {
-                            // 시스템 UI 종료 → 일반 앱으로 복귀
-                            Trace.WriteLine($"[SystemUI] {device.Name}: 시스템 UI 종료 - 정상 모드 복귀");
-                        }
-                    }
                 }
                 catch { }
             }
@@ -2650,13 +2613,6 @@ namespace MultiQuest_Management
                     if (!adbReady)
                         return;
 
-                    // 시스템 UI 활성 중이면 재시작하지 않음 (Boundary/설정 화면 보호)
-                    if (device.SystemUIActive)
-                    {
-                        Trace.WriteLine($"[MirrorRestart] {device.Name}: 시스템 UI 활성 중이므로 재시작 건너뜀");
-                        return;
-                    }
-
                     await Dispatcher.InvokeAsync(() =>
                     {
                         if (_isShuttingDown || !device.IsConnected)
@@ -3224,7 +3180,6 @@ namespace MultiQuest_Management
         private string _ip;
         private string _status;
         private int _batteryLevel = -1;
-        private bool _systemUIActive;
 
         public string Name
         {
@@ -3263,20 +3218,6 @@ namespace MultiQuest_Management
             set { if (_mirrorError != value) { _mirrorError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMirrorError)); } }
         }
         public bool HasMirrorError => !string.IsNullOrEmpty(_mirrorError);
-
-        /// <summary>
-        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 여부.
-        /// true일 때는 scrcpy 검은 화면이 정상이므로 재시작하지 않는다.
-        /// </summary>
-        public bool SystemUIActive
-        {
-            get => _systemUIActive;
-            set { if (_systemUIActive != value) { _systemUIActive = value; OnPropertyChanged(); OnPropertyChanged(nameof(SystemUIMessage)); } }
-        }
-
-        public string SystemUIMessage => SystemUIActive 
-            ? "⚠️ 시스템 UI 표시 중\nQuest에서 Boundary/설정 화면을 확인해 주세요" 
-            : null;
 
         public bool IsConnected => string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase);
         public string BatteryText => BatteryLevel >= 0 ? $"{BatteryLevel}%" : "N/A";

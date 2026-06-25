@@ -2650,13 +2650,6 @@ namespace MultiQuest_Management
                     if (!adbReady)
                         return;
 
-                    // 시스템 UI 활성 중이면 재시작하지 않음 (Boundary/설정 화면 보호)
-                    if (device.SystemUIActive)
-                    {
-                        Trace.WriteLine($"[MirrorRestart] {device.Name}: 시스템 UI 활성 중이므로 재시작 건너뜀");
-                        return;
-                    }
-
                     await Dispatcher.InvokeAsync(() =>
                     {
                         if (_isShuttingDown || !device.IsConnected)

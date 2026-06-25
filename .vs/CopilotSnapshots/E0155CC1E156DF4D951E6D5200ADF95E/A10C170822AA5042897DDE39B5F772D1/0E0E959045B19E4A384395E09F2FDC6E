@@ -390,9 +390,6 @@ namespace MultiQuest_Management
         {
             if (device == null || !device.IsConnected) return;
 
-            // Restart 시작 전 pending restart 취소 (자동 재시작 충돌 방지)
-            CancelPendingMirrorRestart(device.Ip);
-
             lock (_mirrorLock)
             {
                 if (_scrcpy.TryGetValue(device.Ip, out var old) && !old.HasExited)
@@ -490,12 +487,6 @@ namespace MultiQuest_Management
 
             // Connected인데 scrcpy가 없는 기기 자동 복구
             EnsureMissingMirrorProcesses();
-
-            // 프로세스는 있지만 타일에 안 붙은 경우 재Attach (회색 배경 방지)
-            EnsureAttachedMirrorWindows();
-
-            // Quest 시스템 UI 상태 체크 (Boundary/설정 화면 감지)
-            CheckSystemUIStatus();
         }
 
         /// <summary>Connected인데 scrcpy 프로세스가 없는 기기를 감지해 재시작을 예약한다.</summary>
@@ -521,77 +512,6 @@ namespace MultiQuest_Management
 
                 Trace.WriteLine($"[MirrorWatchdog] {device.Name}({mirrorKey}) scrcpy 없음 → 재시작 예약");
                 ScheduleMirrorRestart(device, mirrorKey, "missing scrcpy process");
-            }
-        }
-
-        /// <summary>
-        /// scrcpy 프로세스는 살아있지만 타일에 제대로 Attach되지 않은 경우를 감지해 재Attach한다.
-        /// 첫 접속 시 회색 배경만 보이는 문제 방지용.
-        /// </summary>
-        private void EnsureAttachedMirrorWindows()
-        {
-            if (PanelMetaDevice.Visibility != Visibility.Visible || _isScanning)
-                return;
-
-            foreach (var device in Devices.Where(d => d.IsConnected).ToList())
-            {
-                Process proc;
-
-                lock (_mirrorLock)
-                {
-                    if (!_scrcpy.TryGetValue(device.Ip, out proc))
-                        continue;
-                }
-
-                try
-                {
-                    if (proc == null || proc.HasExited || proc.MainWindowHandle == IntPtr.Zero)
-                        continue;
-
-                    var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                    if (host == null || host.ActualWidth <= 1 || host.ActualHeight <= 1)
-                        continue;
-
-                    // 재Attach 및 재보정 (회색 배경 복구)
-                    ScrcpyEmbedder.Attach(proc, host, this);
-                    ScrcpyEmbedder.Adjust(proc, host, this);
-                    ScrcpyEmbedder.ShowAll(new[] { proc });
-                }
-                catch { }
-            }
-        }
-
-        /// <summary>
-        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 주기적으로 체크한다.
-        /// 시스템 UI 활성 시 scrcpy 검은 화면은 정상 동작이므로 재시작을 억제한다.
-        /// </summary>
-        private void CheckSystemUIStatus()
-        {
-            foreach (var device in Devices.Where(d => d.IsConnected).ToList())
-            {
-                try
-                {
-                    bool wasActive = device.SystemUIActive;
-                    bool isActive = IsSystemUIActive(device.Ip);
-
-                    if (wasActive != isActive)
-                    {
-                        device.SystemUIActive = isActive;
-
-                        if (isActive)
-                        {
-                            // 시스템 UI 진입 → 검은 화면 오류 클리어
-                            device.MirrorError = null;
-                            Trace.WriteLine($"[SystemUI] {device.Name}: 시스템 UI 활성화 - 미러링 재시작 억제");
-                        }
-                        else
-                        {
-                            // 시스템 UI 종료 → 일반 앱으로 복귀
-                            Trace.WriteLine($"[SystemUI] {device.Name}: 시스템 UI 종료 - 정상 모드 복귀");
-                        }
-                    }
-                }
-                catch { }
             }
         }
 
@@ -2501,44 +2421,18 @@ namespace MultiQuest_Management
 
                 RegisterScrcpyProcess(device, proc, mirrorKey);
 
-                // scrcpy 창 핸들은 생겼지만 renderer/첫 프레임은 늦게 준비될 수 있음
-                // 80ms → 1000ms로 증가 (첫 접속 회색 배경 방지)
-                await Task.Delay(1000);
-
+                // Win32 창이 완전히 렌더링될 때까지 짧게 대기 후 임베드
+                // 서치 오버레이가 표시 중이면 Attach를 억제하고 pendingAttach에 등록
+                // (HideSearchOverlay에서 Attach 처리)
+                await Task.Delay(80);
                 ScrcpyEmbedder.Attach(proc, host, this);
-                ScrcpyEmbedder.Adjust(proc, host, this);
 
                 if (_isScanning || PanelMetaDevice.Visibility != Visibility.Visible)
                 {
                     ScrcpyEmbedder.HideWindow(proc.MainWindowHandle);
 
-                    // 스캔 중이거나 패널이 숨겨진 경우 나중에 재Attach 대상으로 등록
-                    lock (_mirrorLock) { _pendingAttach.Add(mirrorKey); }
-                }
-                else
-                {
-                    ScrcpyEmbedder.ShowAll(new[] { proc });
-
-                    // 레이아웃/SetParent 안정화 후 2차/3차 보정 (회색 배경 방지)
-                    _ = Dispatcher.BeginInvoke(async () =>
-                    {
-                        await Task.Delay(500);
-                        var h1 = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                        if (h1 != null && !proc.HasExited)
-                        {
-                            ScrcpyEmbedder.Adjust(proc, h1, this);
-                            ScrcpyEmbedder.ShowAll(new[] { proc });
-                        }
-
-                        await Task.Delay(1000);
-                        var h2 = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
-                        if (h2 != null && !proc.HasExited)
-                        {
-                            ScrcpyEmbedder.Attach(proc, h2, this);
-                            ScrcpyEmbedder.Adjust(proc, h2, this);
-                            ScrcpyEmbedder.ShowAll(new[] { proc });
-                        }
-                    }, DispatcherPriority.Loaded);
+                    if (_isScanning)
+                        lock (_mirrorLock) { _pendingAttach.Add(mirrorKey); }
                 }
             }
             finally
@@ -2650,13 +2544,6 @@ namespace MultiQuest_Management
                     if (!adbReady)
                         return;
 
-                    // 시스템 UI 활성 중이면 재시작하지 않음 (Boundary/설정 화면 보호)
-                    if (device.SystemUIActive)
-                    {
-                        Trace.WriteLine($"[MirrorRestart] {device.Name}: 시스템 UI 활성 중이므로 재시작 건너뜀");
-                        return;
-                    }
-
                     await Dispatcher.InvokeAsync(() =>
                     {
                         if (_isShuttingDown || !device.IsConnected)
@@ -2738,48 +2625,6 @@ namespace MultiQuest_Management
                 x.Contains("device not found", StringComparison.OrdinalIgnoreCase));
 
             return important ?? lines.LastOrDefault() ?? $"scrcpy 종료됨 (exitCode={exitCode})";
-        }
-
-        /// <summary>
-        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 감지한다.
-        /// 이 상태에서는 scrcpy가 검은 화면을 캡처하는 것이 정상이므로 재시작하지 않는다.
-        /// </summary>
-        private bool IsSystemUIActive(string deviceIp)
-        {
-            try
-            {
-                // 현재 foreground Activity 확인
-                string activity = RunCmd($"adb -s {deviceIp} shell dumpsys window | findstr mCurrentFocus", 2000);
-
-                if (string.IsNullOrWhiteSpace(activity))
-                    return false;
-
-                string lower = activity.ToLowerInvariant();
-
-                // Quest 시스템 UI 패키지 감지
-                bool isSystemUI = 
-                    lower.Contains("com.oculus.guardian") ||           // Boundary 설정
-                    lower.Contains("com.oculus.vrshell") ||            // VR Shell
-                    lower.Contains("com.android.settings") ||          // 안드로이드 설정
-                    lower.Contains("boundary") ||                       // Boundary 관련
-                    lower.Contains("systemui") ||                       // 시스템 UI
-                    lower.Contains("com.oculus.shellenv") ||           // Shell Environment
-                    lower.Contains("com.oculus.spatialanchor") ||      // 공간 앵커
-                    lower.Contains("com.oculus.firsttimenux") ||       // 최초 설정
-                    lower.Contains("com.oculus.home");                  // Oculus Home
-
-                if (isSystemUI)
-                {
-                    Trace.WriteLine($"[SystemUI] {deviceIp}: 시스템 UI 감지 - {activity.Trim()}");
-                }
-
-                return isSystemUI;
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"[SystemUI] {deviceIp}: 감지 실패 - {ex.Message}");
-                return false;
-            }
         }
 
         private void StopMirrorForDevice(Device device)
@@ -2921,9 +2766,6 @@ namespace MultiQuest_Management
             }
             _isRefreshing = true;
             if ((sender as Button)?.CommandParameter is not Device device) { _isRefreshing = false; return; }
-
-            // Refresh 시작 전 pending restart 취소 (자동 재시작 충돌 방지)
-            CancelPendingMirrorRestart(device.Ip);
 
             // 기존 scrcpy 프로세스가 있으면 모두 종료
             lock (_mirrorLock)
@@ -3224,7 +3066,6 @@ namespace MultiQuest_Management
         private string _ip;
         private string _status;
         private int _batteryLevel = -1;
-        private bool _systemUIActive;
 
         public string Name
         {
@@ -3263,20 +3104,6 @@ namespace MultiQuest_Management
             set { if (_mirrorError != value) { _mirrorError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMirrorError)); } }
         }
         public bool HasMirrorError => !string.IsNullOrEmpty(_mirrorError);
-
-        /// <summary>
-        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 여부.
-        /// true일 때는 scrcpy 검은 화면이 정상이므로 재시작하지 않는다.
-        /// </summary>
-        public bool SystemUIActive
-        {
-            get => _systemUIActive;
-            set { if (_systemUIActive != value) { _systemUIActive = value; OnPropertyChanged(); OnPropertyChanged(nameof(SystemUIMessage)); } }
-        }
-
-        public string SystemUIMessage => SystemUIActive 
-            ? "⚠️ 시스템 UI 표시 중\nQuest에서 Boundary/설정 화면을 확인해 주세요" 
-            : null;
 
         public bool IsConnected => string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase);
         public string BatteryText => BatteryLevel >= 0 ? $"{BatteryLevel}%" : "N/A";
