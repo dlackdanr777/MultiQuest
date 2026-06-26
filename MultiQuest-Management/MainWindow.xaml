@@ -948,6 +948,7 @@ TextOptions.TextRenderingMode="ClearType">
         <!-- ── 검색 중 오버레이 ── -->
         <Grid x:Name="SearchOverlay"
               Grid.Column="1"
+              Panel.ZIndex="9999"
               Visibility="Collapsed"
               Background="#E8650A">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="200">
