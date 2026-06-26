@@ -49,14 +49,12 @@ F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\System.Reactive
 F:\WPF\MultiQuest\MultiQuest-Management\bin\Debug\net8.0-windows\Zeroconf.dll
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiQuest-Management.csproj.AssemblyReference.cache
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.baml
-F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\UpdateWindow.baml
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\AddDeviceWindow.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\DeviceWindow.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MainWindow.g.cs
-F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\MultiMirrorWindow.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\ProgressWindow.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\SettingWindow.g.cs
 F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\UpdateWindow.g.cs

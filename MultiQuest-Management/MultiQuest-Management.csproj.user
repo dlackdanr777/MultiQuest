@@ -5,9 +5,6 @@
     <Compile Update="DeviceWindow.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Update="MultiMirrorWindow.xaml.cs">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Update="ProgressWindow.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
