@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
 F:\WPF\MultiQuest\MultiQuest-Management\App.xaml
-7-1663289510
+8-1714887287
 43-1518988019
-16395605181
-2092135746212
-AddDeviceWindow.xaml;DeviceWindow.xaml;MainWindow.xaml;MultiMirrorWindow.xaml;ProgressWindow.xaml;SettingWindow.xaml;UpdateWindow.xaml;
+20561155680
+211812901407
+AddDeviceWindow.xaml;DeviceWindow.xaml;MainWindow.xaml;MultiMirrorWindow.xaml;ProgressWindow.xaml;RtspMirrorWindow.xaml;SettingWindow.xaml;UpdateWindow.xaml;
 
-True
+False
 

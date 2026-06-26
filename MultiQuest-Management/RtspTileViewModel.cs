@@ -1,0 +1,187 @@
+using LibVLCSharp.Shared;
+using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows.Media;
+
+namespace MultiQuest_Management
+{
+    public sealed class RtspTileViewModel : INotifyPropertyChanged, IDisposable
+    {
+        private readonly LibVLC _libVlc;
+        private readonly RtspQualityManager _qualityManager;
+        private Media? _media;
+        private string _status = "대기 중";
+        private System.Windows.Media.Brush _statusBrush = System.Windows.Media.Brushes.LightGray;
+        private bool _disposed;
+        private RtspQualityManager.QualityLevel _currentQuality;
+        private int _bufferingCount;
+        private string _lastPlayedUrl = null; // 마지막 재생 URL 추적
+
+        public QuestAgentInfo Agent { get; }
+
+        public LibVLCSharp.Shared.MediaPlayer MediaPlayer { get; }
+
+        public string Title =>
+            string.IsNullOrWhiteSpace(Agent.Model)
+                ? Agent.Host
+                : $"{Agent.Model}";
+
+        public string Subtitle =>
+            $"{Agent.Host}:{Agent.StatusPort} / Battery {Agent.Battery}%";
+
+        public string Status
+        {
+            get => _status;
+            private set
+            {
+                if (_status == value) return;
+                _status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public System.Windows.Media.Brush StatusBrush
+        {
+            get => _statusBrush;
+            private set
+            {
+                if (_statusBrush == value) return;
+                _statusBrush = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public RtspTileViewModel(LibVLC libVlc, QuestAgentInfo agent, RtspQualityManager qualityManager)
+        {
+            _libVlc = libVlc;
+            Agent = agent;
+            _qualityManager = qualityManager;
+
+            MediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVlc)
+            {
+                EnableHardwareDecoding = true,
+                Mute = true
+            };
+
+            MediaPlayer.Playing += (_, __) =>
+                SetStatus("재생 중", System.Windows.Media.Brushes.LightGreen);
+
+            MediaPlayer.Buffering += (_, e) =>
+            {
+                _bufferingCount++;
+                _qualityManager.RecordBuffering(Agent.Host);
+                SetStatus("버퍼링", System.Windows.Media.Brushes.Khaki);
+            };
+
+            MediaPlayer.EncounteredError += (_, __) =>
+                SetStatus("재생 오류", System.Windows.Media.Brushes.OrangeRed);
+
+            MediaPlayer.Stopped += (_, __) =>
+                SetStatus("중지됨", System.Windows.Media.Brushes.LightGray);
+
+            MediaPlayer.EndReached += (_, __) =>
+                SetStatus("스트림 종료됨", System.Windows.Media.Brushes.Orange);
+        }
+
+        public void Start(int activeStreamCount)
+        {
+            if (_disposed) return;
+
+            if (string.IsNullOrWhiteSpace(Agent.RtspUrl))
+            {
+                SetStatus("RTSP URL 없음", System.Windows.Media.Brushes.OrangeRed);
+                return;
+            }
+
+            // 이미 같은 URL을 재생 중이면 스킵
+            if (_lastPlayedUrl == Agent.RtspUrl && MediaPlayer.IsPlaying)
+            {
+                return;
+            }
+
+            try
+            {
+                // 기존 스트림 정리
+                Stop();
+
+                // 품질 레벨 결정
+                _currentQuality = _qualityManager.RegisterStream(Agent.Host, activeStreamCount);
+                var qualityDesc = RtspQualityManager.GetQualityDescription(_currentQuality);
+
+                SetStatus($"연결 중 ({qualityDesc})", System.Windows.Media.Brushes.Khaki);
+
+                _media?.Dispose();
+                _media = new Media(_libVlc, Agent.RtspUrl, FromType.FromLocation);
+
+                // 품질에 맞는 VLC 옵션 적용
+                var options = RtspQualityManager.GetVlcOptions(_currentQuality);
+                foreach (var option in options)
+                {
+                    _media.AddOption(option);
+                }
+
+                MediaPlayer.Play(_media);
+                _lastPlayedUrl = Agent.RtspUrl; // URL 기록
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"재생 시작 실패: {ex.Message}", System.Windows.Media.Brushes.OrangeRed);
+            }
+        }
+
+        /// <summary>
+        /// RTSP URL이 변경되었을 때 호출하여 스트림을 재시작합니다.
+        /// </summary>
+        public void Restart(int activeStreamCount)
+        {
+            if (_disposed) return;
+
+            // URL이 변경되었는지 확인
+            if (_lastPlayedUrl != Agent.RtspUrl)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RtspTileViewModel] URL 변경 감지: {_lastPlayedUrl} -> {Agent.RtspUrl}");
+                Start(activeStreamCount);
+            }
+        }
+
+        public void Stop()
+        {
+            try
+            {
+                _qualityManager.UnregisterStream(Agent.Host);
+                MediaPlayer.Stop();
+                _lastPlayedUrl = null; // URL 추적 초기화
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        private void SetStatus(string status, System.Windows.Media.Brush brush)
+        {
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                Status = status;
+                StatusBrush = brush;
+            });
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            try { _qualityManager.UnregisterStream(Agent.Host); } catch { }
+            try { MediaPlayer.Stop(); } catch { }
+            try { _media?.Dispose(); } catch { }
+            try { MediaPlayer.Dispose(); } catch { }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? prop = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+    }
+}

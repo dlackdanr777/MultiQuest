@@ -1,0 +1,236 @@
+﻿using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
+using LibVLCSharp.Shared;
+
+using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using Window = System.Windows.Window;
+
+namespace MultiQuest_Management
+{
+    public partial class DeviceWindow : Window, INotifyPropertyChanged
+    {
+        private readonly MainWindow _mainWindow;
+        private readonly LibVLC _rtspLibVlc;
+
+        private Device _currentDevice;
+        public Device CurrentDevice
+        {
+            get => _currentDevice;
+            private set { _currentDevice = value; OnPropertyChanged(nameof(CurrentDevice)); }
+        }
+
+        private MediaPlayer _mediaPlayer;
+        private bool _isRefreshing = false;
+
+        // ✅ 권장: 디바이스를 함께 받는 생성자
+        public DeviceWindow(MainWindow mainWindow, Device device, LibVLC rtspLibVlc)
+        {
+            InitializeComponent();
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _rtspLibVlc = rtspLibVlc ?? throw new ArgumentNullException(nameof(rtspLibVlc));
+            CurrentDevice = device ?? throw new ArgumentNullException(nameof(device));
+            DataContext = this;
+
+            Loaded += Window_Loaded;
+            Closed += Window_Closed;
+
+            // 디바이스 상태 변화에 반응
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+        }
+
+        // ❗기존 생성자를 쓰고 싶다면 이 메서드로 디바이스를 주입하세요.
+        public void SetDevice(Device device)
+        {
+            CurrentDevice = device ?? throw new ArgumentNullException(nameof(device));
+            DataContext = this;
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+        }
+
+        // ===== 생명주기 =====
+        private async void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            // RTSP 미러링 시작
+            if (!string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl))
+            {
+                await StartRtspMirrorAsync();
+            }
+            else if (!string.IsNullOrWhiteSpace(CurrentDevice.AgentHost))
+            {
+                // Agent가 있지만 RTSP URL이 없으면 Agent 상태 확인 후 재시도
+                var status = await AgentApi.GetStatusAsync(
+                    CurrentDevice.AgentHost,
+                    CurrentDevice.AgentStatusPort);
+
+                if (status != null && !string.IsNullOrWhiteSpace(status.RtspUrl))
+                {
+                    CurrentDevice.RtspUrl = status.RtspUrl;
+                    await StartRtspMirrorAsync();
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "RTSP 스트리밍이 시작되지 않았습니다.\n" +
+                        "Quest Agent 앱에서 '화면 송출 시작' 버튼을 눌러주세요.",
+                        "RTSP 미연결",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        private void Window_Closed(object? sender, EventArgs e)
+        {
+            try { CurrentDevice.PropertyChanged -= CurrentDevice_PropertyChanged; } catch { }
+
+            StopMirror();
+        }
+
+        // ===== 디바이스 상태 반응 =====
+        private async void CurrentDevice_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(Device.RtspUrl))
+            {
+                if (!string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl))
+                    await StartRtspMirrorAsync();
+                else
+                    StopMirror();
+            }
+        }
+
+        // ===== ★ RTSP 미러링 시작 =====
+        private async Task StartRtspMirrorAsync()
+        {
+            StopMirror(); // 기존 정리
+
+            if (string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl))
+                return;
+
+            await Task.Delay(300); // UI 안정화 대기
+
+            try
+            {
+                _mediaPlayer?.Dispose();
+                _mediaPlayer = new MediaPlayer(_rtspLibVlc);
+
+                // VideoView에 MediaPlayer 연결
+                VideoView.MediaPlayer = _mediaPlayer;
+
+                var media = new Media(
+                    _rtspLibVlc,
+                    CurrentDevice.RtspUrl,
+                    FromType.FromLocation);
+
+                media.AddOption(":network-caching=300");
+                media.AddOption(":rtsp-tcp");
+                media.AddOption(":live-caching=0");
+
+                _mediaPlayer.Play(media);
+
+                Debug.WriteLine($"[DeviceWindow] RTSP 시작: {CurrentDevice.RtspUrl}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DeviceWindow] RTSP 시작 실패: {ex.Message}");
+                MessageBox.Show(
+                    $"RTSP 미러링 시작 실패:\n{ex.Message}",
+                    "오류",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void StopMirror()
+        {
+            try
+            {
+                _mediaPlayer?.Stop();
+                _mediaPlayer?.Dispose();
+                _mediaPlayer = null;
+            }
+            catch { }
+        }
+
+        // ===== 버튼 핸들러 =====
+        private async void RefreshTile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                MessageBox.Show("이미 새로고침 중입니다.");
+                return;
+            }
+
+            _isRefreshing = true;
+
+            try
+            {
+                // Agent에서 최신 상태 가져오기
+                if (!string.IsNullOrWhiteSpace(CurrentDevice.AgentHost))
+                {
+                    var status = await AgentApi.GetStatusAsync(
+                        CurrentDevice.AgentHost,
+                        CurrentDevice.AgentStatusPort);
+
+                    if (status != null)
+                    {
+                        CurrentDevice.RtspUrl = status.RtspUrl;
+                        CurrentDevice.BatteryLevel = status.Battery;
+                        CurrentDevice.IsCharging = status.IsCharging;
+                    }
+                }
+
+                // RTSP 재시작
+                await StartRtspMirrorAsync();
+
+                MessageBox.Show("새로고침 완료", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"새로고침 실패:\n{ex.Message}",
+                    "오류",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                _isRefreshing = false;
+            }
+        }
+
+        private void StopAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+            Debug.WriteLine("디바이스 앱 중지 요청");
+            _mainWindow.StopDeviceApp(CurrentDevice, () => this.IsEnabled = true);
+        }
+
+        private void StartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+            var button = sender as Button;
+            _mainWindow.StartApp(CurrentDevice, int.Parse(button.Tag as string), () => this.IsEnabled = true);
+        }
+
+        // ===== 유틸/INPC =====
+        private void ShowMsg(string msg) => MessageBox.Show(msg);
+
+        private static void PlayClickSound()
+        {
+            try { System.Media.SystemSounds.Beep.Play(); } catch { }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}

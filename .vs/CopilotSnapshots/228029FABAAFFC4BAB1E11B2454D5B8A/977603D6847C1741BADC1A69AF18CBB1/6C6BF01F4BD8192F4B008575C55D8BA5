@@ -1,0 +1,238 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace MultiQuest_Management
+{
+    /// <summary>
+    /// Quest Agent HTTP API 클라이언트
+    /// ADB 의존성을 제거하고 Agent와 직접 통신합니다.
+    /// </summary>
+    public static class AgentApi
+    {
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        /// <summary>
+        /// Agent 상태 조회 (배터리, 스트림 상태 등)
+        /// </summary>
+        public static async Task<QuestAgentInfo> GetStatusAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/status";
+                string json = await _http.GetStringAsync(url);
+
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(
+                    json,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                return info;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] GetStatusAsync failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 앱 실행 명령 (ADB 대체)
+        /// </summary>
+        public static async Task<bool> LaunchAppAsync(
+            string host,
+            int port,
+            string packageName,
+            string activityName = "com.unity3d.player.UnityPlayerActivity",
+            Dictionary<string, int> extras = null)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/launch";
+
+                var body = new
+                {
+                    packageName,
+                    activityName,
+                    extras = extras ?? new Dictionary<string, int>()
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] LaunchAppAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 앱 종료 요청 (협력 종료 방식, ADB force-stop 대체)
+        /// </summary>
+        public static async Task<bool> StopAppAsync(
+            string host,
+            int port,
+            string packageName)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/stop";
+
+                var body = new
+                {
+                    packageName
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] StopAppAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// RTSP 스트림 재시작
+        /// </summary>
+        public static async Task<bool> RestartCaptureAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/restartCapture";
+
+                var response = await _http.PostAsync(url, null);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] RestartCaptureAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 홈 화면으로 이동
+        /// </summary>
+        public static async Task<bool> GoHomeAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/home";
+
+                var response = await _http.PostAsync(url, null);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] GoHomeAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 실행 중인 앱에 실시간 명령 전송
+        /// 예: skip, pause, resume, next, restartLesson
+        /// </summary>
+        public static async Task<bool> SendCommandAsync(
+            string host,
+            int port,
+            string packageName,
+            string command,
+            Dictionary<string, object> args = null)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/appCommand";
+
+                var body = new
+                {
+                    packageName,
+                    command,
+                    args = args ?? new Dictionary<string, object>()
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] SendCommandAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 화면 켜기 및 절전 방지 (키 이벤트 전송)
+        /// KEYCODE_WAKEUP = 224
+        /// keepAwake = true: 송출 중 절전 진입 방지
+        /// </summary>
+        public static async Task<bool> WakeScreenAsync(
+            string host, 
+            int port = 18080, 
+            bool keepAwake = true)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/wake";
+
+                var body = new
+                {
+                    keepAwake = keepAwake
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] WakeScreenAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+    }
+}

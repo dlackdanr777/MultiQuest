@@ -1,0 +1,96 @@
+using LibVLCSharp.Shared;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows;
+
+namespace MultiQuest_Management
+{
+    public partial class RtspMirrorWindow : Window, INotifyPropertyChanged
+    {
+        private readonly LibVLC _libVlc;
+        private readonly RtspQualityManager _qualityManager;
+
+        private int _columns = 1;
+
+        public ObservableCollection<RtspTileViewModel> Tiles { get; } = new();
+
+        public int Columns
+        {
+            get => _columns;
+            private set
+            {
+                if (_columns == value) return;
+                _columns = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public RtspMirrorWindow(IEnumerable<QuestAgentInfo> agents)
+        {
+            InitializeComponent();
+
+            // VideoLAN.LibVLC.Windows 패키지를 쓰면 보통 자동 로드되지만,
+            // 명시 초기화해도 됩니다.
+            Core.Initialize();
+
+            _libVlc = new LibVLC(
+                "--no-audio",
+                "--rtsp-tcp",
+                "--network-caching=250",
+                "--live-caching=250"
+            );
+
+            _qualityManager = new RtspQualityManager();
+
+            var agentList = agents.Where(a =>
+                         !string.IsNullOrWhiteSpace(a.RtspUrl) &&
+                         string.Equals(a.StreamState, "streaming", StringComparison.OrdinalIgnoreCase))
+                         .ToList();
+
+            foreach (var agent in agentList)
+            {
+                Tiles.Add(new RtspTileViewModel(_libVlc, agent, _qualityManager));
+            }
+
+            Columns = CalculateColumns(Tiles.Count);
+
+            DataContext = this;
+
+            Loaded += RtspMirrorWindow_Loaded;
+            Closing += RtspMirrorWindow_Closing;
+        }
+
+        private void RtspMirrorWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            int count = Tiles.Count;
+            foreach (var tile in Tiles)
+                tile.Start(count);
+        }
+
+        private void RtspMirrorWindow_Closing(object? sender, CancelEventArgs e)
+        {
+            foreach (var tile in Tiles)
+                tile.Dispose();
+
+            Tiles.Clear();
+
+            try { _qualityManager.Dispose(); } catch { }
+            try { _libVlc.Dispose(); } catch { }
+        }
+
+        private static int CalculateColumns(int count)
+        {
+            if (count <= 1) return 1;
+            if (count <= 4) return 2;
+            if (count <= 9) return 3;
+            if (count <= 16) return 4;
+            return 5;
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? prop = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+    }
+}
