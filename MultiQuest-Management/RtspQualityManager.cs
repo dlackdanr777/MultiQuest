@@ -100,6 +100,41 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
+        /// 스트림 정보 가져오기 (UI 바인딩용)
+        /// </summary>
+        public StreamInfo GetStreamInfo(string streamId)
+        {
+            if (!_metrics.TryGetValue(streamId, out var metrics))
+                return null;
+
+            var elapsed = (DateTime.UtcNow - metrics.StartTime).TotalSeconds;
+            var bufferingRate = elapsed > 0 ? metrics.BufferingCount / elapsed : 0;
+
+            return new StreamInfo
+            {
+                StreamId = streamId,
+                CurrentQuality = metrics.CurrentQuality,
+                BufferingRate = bufferingRate,
+                BufferingCount = metrics.BufferingCount,
+                DroppedFrames = metrics.DroppedFrames,
+                Uptime = elapsed
+            };
+        }
+
+        /// <summary>
+        /// 스트림 정보 (읽기 전용)
+        /// </summary>
+        public class StreamInfo
+        {
+            public string StreamId { get; set; }
+            public QualityLevel CurrentQuality { get; set; }
+            public double BufferingRate { get; set; }
+            public int BufferingCount { get; set; }
+            public int DroppedFrames { get; set; }
+            public double Uptime { get; set; }
+        }
+
+        /// <summary>
         /// 품질 레벨에 따른 VLC 옵션 반환
         /// </summary>
         public static string[] GetVlcOptions(QualityLevel quality)

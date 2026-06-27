@@ -1,4 +1,5 @@
 using LibVLCSharp.Shared;
+using LibVLCSharp.Shared;
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -17,6 +18,9 @@ namespace MultiQuest_Management
         private RtspQualityManager.QualityLevel _currentQuality;
         private int _bufferingCount;
         private string _lastPlayedUrl = null; // 마지막 재생 URL 추적
+        private string _qualityLevel = "-";
+        private double _bufferingRate = 0.0;
+        private int _networkCaching = 0;
 
         public QuestAgentInfo Agent { get; }
 
@@ -48,6 +52,39 @@ namespace MultiQuest_Management
             {
                 if (_statusBrush == value) return;
                 _statusBrush = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string QualityLevel
+        {
+            get => _qualityLevel;
+            private set
+            {
+                if (_qualityLevel == value) return;
+                _qualityLevel = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public double BufferingRate
+        {
+            get => _bufferingRate;
+            private set
+            {
+                if (Math.Abs(_bufferingRate - value) < 0.01) return;
+                _bufferingRate = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public int NetworkCaching
+        {
+            get => _networkCaching;
+            private set
+            {
+                if (_networkCaching == value) return;
+                _networkCaching = value;
                 OnPropertyChanged();
             }
         }
@@ -121,6 +158,9 @@ namespace MultiQuest_Management
                     _media.AddOption(option);
                 }
 
+                // 품질 정보 업데이트
+                UpdateQualityInfo();
+
                 MediaPlayer.Play(_media);
                 _lastPlayedUrl = Agent.RtspUrl; // URL 기록
             }
@@ -166,6 +206,55 @@ namespace MultiQuest_Management
                 Status = status;
                 StatusBrush = brush;
             });
+        }
+
+        /// <summary>
+        /// 현재 품질 정보를 UI 속성에 업데이트합니다.
+        /// </summary>
+        public void UpdateQualityInfo()
+        {
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                var streamInfo = _qualityManager.GetStreamInfo(Agent.Host);
+                if (streamInfo != null)
+                {
+                    QualityLevel = GetQualityDisplayName(streamInfo.CurrentQuality);
+                    BufferingRate = streamInfo.BufferingRate * 100;
+                    NetworkCaching = GetNetworkCachingValue(streamInfo.CurrentQuality);
+                }
+                else
+                {
+                    QualityLevel = "-";
+                    BufferingRate = 0.0;
+                    NetworkCaching = 0;
+                }
+            });
+        }
+
+        private static string GetQualityDisplayName(RtspQualityManager.QualityLevel quality)
+        {
+            return quality switch
+            {
+                RtspQualityManager.QualityLevel.Ultra => "Ultra",
+                RtspQualityManager.QualityLevel.High => "High",
+                RtspQualityManager.QualityLevel.Medium => "Medium",
+                RtspQualityManager.QualityLevel.Low => "Low",
+                RtspQualityManager.QualityLevel.Minimal => "Minimal",
+                _ => "-"
+            };
+        }
+
+        private static int GetNetworkCachingValue(RtspQualityManager.QualityLevel quality)
+        {
+            return quality switch
+            {
+                RtspQualityManager.QualityLevel.Ultra => 250,
+                RtspQualityManager.QualityLevel.High => 500,
+                RtspQualityManager.QualityLevel.Medium => 1000,
+                RtspQualityManager.QualityLevel.Low => 2000,
+                RtspQualityManager.QualityLevel.Minimal => 3000,
+                _ => 0
+            };
         }
 
         public void Dispose()

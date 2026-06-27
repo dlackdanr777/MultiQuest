@@ -1,89 +1,89 @@
 {
   "Version": 1,
-  "WorkspaceRootPath": "F:\\WPF\\MultiQuest\\",
+  "WorkspaceRootPath": "D:\\UnityGame\\MultiQuest\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\devicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\devicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\devicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtspmirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspmirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\updateservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\app.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\adddevicewindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\progresswindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\rtspmirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspmirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\updateservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\updateservice.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtspmirrorwindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\rtspmirrorwindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspmirrorwindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\settingwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\settingwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\settingwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\adddevicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\adddevicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\adddevicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\multiquest-management.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\multiquest-management.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\multiquest-management.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\updatewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\updatewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\updatewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\app.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\settingwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\settingwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\settingwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\version.txt||{8B382828-6202-11D1-8870-0000F87579D2}|",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\version.txt||{8B382828-6202-11D1-8870-0000F87579D2}|",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\version.txt||{8B382828-6202-11D1-8870-0000F87579D2}|"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\updatewindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|d:\\unitygame\\multiquest\\multiquest-management\\updatewindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\updatewindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
     }
   ],
@@ -94,39 +94,41 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 11,
+          "SelectedChildIndex": 5,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "RtspQualityManager.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspQualityManager.cs",
-              "RelativeDocumentMoniker": "MultiQuest-Management\\RtspQualityManager.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspQualityManager.cs",
-              "RelativeToolTip": "MultiQuest-Management\\RtspQualityManager.cs",
-              "ViewState": "AgIAAAsBAAAAAAAAAAAAACQBAAAdAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-25T11:51:22.799Z"
-            },
-            {
-              "$type": "Document",
               "DocumentIndex": 2,
-              "Title": "AgentApi.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
-              "RelativeDocumentMoniker": "MultiQuest-Management\\AgentApi.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
-              "RelativeToolTip": "MultiQuest-Management\\AgentApi.cs",
-              "ViewState": "AgIAAHMAAAAAAAAAAAAlwFMAAAAeAAAAAAAAAA==",
+              "Title": "RtspQualityManager.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspQualityManager.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\RtspQualityManager.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspQualityManager.cs",
+              "RelativeToolTip": "MultiQuest-Management\\RtspQualityManager.cs",
+              "ViewState": "AgIAAMwAAAAAAAAAAAAIwIsAAABCAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-25T07:29:37.444Z"
+              "WhenOpened": "2026-06-25T11:51:22.799Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 5,
+              "Title": "AgentApi.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
+              "RelativeDocumentMoniker": "MultiQuest-Management\\AgentApi.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
+              "RelativeToolTip": "MultiQuest-Management\\AgentApi.cs",
+              "ViewState": "AgIAALEAAAAAAAAAAAApwFMAAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-25T07:29:37.444Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
               "Title": "RtspMirrorWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAEcAAAAJAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -136,9 +138,9 @@
               "$type": "Document",
               "DocumentIndex": 12,
               "Title": "RtspMirrorWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspMirrorWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\RtspMirrorWindow.xaml",
               "ViewState": "AgIAABcAAAAAAAAAAAAwwD8AAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
@@ -146,23 +148,24 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 3,
               "Title": "RtspTileViewModel.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspTileViewModel.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
               "RelativeToolTip": "MultiQuest-Management\\RtspTileViewModel.cs",
-              "ViewState": "AgIAABAAAAAAAAAAAIBJwBsAAAAjAAAAAAAAAA==",
+              "ViewState": "AgIAAK0AAAAAAAAAAAAUwD8AAAAUAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-25T06:37:05.694Z"
+              "WhenOpened": "2026-06-25T06:37:05.694Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "MainWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
               "WhenOpened": "2026-06-25T04:55:59.034Z",
@@ -172,9 +175,9 @@
               "$type": "Document",
               "DocumentIndex": 11,
               "Title": "UpdateService.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateService.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateService.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateService.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateService.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateService.cs",
               "RelativeToolTip": "MultiQuest-Management\\UpdateService.cs",
               "ViewState": "AgIAADMAAAAAAAAAAAAUwBAAAABDAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -184,9 +187,9 @@
               "$type": "Document",
               "DocumentIndex": 16,
               "Title": "UpdateWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\UpdateWindow.xaml.cs",
               "ViewState": "AgIAAAEAAAAAAAAAAAAwwKsAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -196,9 +199,9 @@
               "$type": "Document",
               "DocumentIndex": 20,
               "Title": "UpdateWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\UpdateWindow.xaml",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAEUAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
@@ -208,21 +211,20 @@
               "$type": "Document",
               "DocumentIndex": 17,
               "Title": "App.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\App.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\App.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\App.xaml",
               "RelativeToolTip": "MultiQuest-Management\\App.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2026-06-07T01:35:41.813Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-06-07T01:35:41.813Z"
             },
             {
               "$type": "Document",
               "DocumentIndex": 19,
               "Title": "version.txt",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\version.txt",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\version.txt",
               "RelativeDocumentMoniker": "MultiQuest-Management\\version.txt",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\version.txt",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\version.txt",
               "RelativeToolTip": "MultiQuest-Management\\version.txt",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAFAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
@@ -230,24 +232,24 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 4,
               "Title": "MainWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml.cs",
-              "ViewState": "AgIAAOcHAAAAAAAAAAAewKsAAAAMAAAAAAAAAA==",
+              "ViewState": "AgIAABMAAAAAAAAAAAAUwG4LAAAJAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-04-23T05:30:53.357Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 7,
               "Title": "App.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\App.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\App.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\App.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\App.xaml.cs",
               "ViewState": "AgIAAKwAAAAAAAAAAAAAAAMAAAAQAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -257,9 +259,9 @@
               "$type": "Document",
               "DocumentIndex": 15,
               "Title": "MultiQuest-Management.csproj",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
               "RelativeDocumentMoniker": "MultiQuest-Management\\MultiQuest-Management.csproj",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
               "RelativeToolTip": "MultiQuest-Management\\MultiQuest-Management.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAkwNkAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
@@ -267,11 +269,11 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "DeviceWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\DeviceWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\DeviceWindow.xaml.cs",
               "ViewState": "AgIAAEMBAAAAAAAAAAAlwIIBAAAlAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -279,22 +281,23 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 1,
               "Title": "DeviceWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\DeviceWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\DeviceWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2025-08-12T04:59:33.135Z"
+              "WhenOpened": "2025-08-12T04:59:33.135Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
               "DocumentIndex": 13,
               "Title": "SettingWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\SettingWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\SettingWindow.xaml.cs",
               "ViewState": "AgIAABAAAAAAAAAAAAD4vxYAAAAWAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -304,9 +307,9 @@
               "$type": "Document",
               "DocumentIndex": 18,
               "Title": "SettingWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\SettingWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\SettingWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\SettingWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
               "WhenOpened": "2025-08-11T01:32:21.233Z"
@@ -315,9 +318,9 @@
               "$type": "Document",
               "DocumentIndex": 14,
               "Title": "AddDeviceWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\AddDeviceWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\AddDeviceWindow.xaml.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAB0AAAAhAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
@@ -325,22 +328,22 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 8,
               "Title": "AddDeviceWindow.xaml",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\AddDeviceWindow.xaml",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\AddDeviceWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\AddDeviceWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
               "WhenOpened": "2025-07-23T06:54:45.421Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 9,
               "Title": "ProgressWindow.xaml.cs",
-              "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "DocumentMoniker": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\ProgressWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\ProgressWindow.xaml.cs",
-              "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\ProgressWindow.xaml.cs",
+              "ToolTip": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\ProgressWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\ProgressWindow.xaml.cs",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAACAAAAABAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",

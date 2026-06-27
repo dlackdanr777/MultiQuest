@@ -953,8 +953,11 @@ ResizeMode="CanResize">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition/>
                                                     <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                                                <!-- 왼쪽: 상태점 + 이름 -->
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                                     <Ellipse Width="8" Height="8" Margin="0,0,5,0">
                                                         <Ellipse.Style>
                                                             <Style TargetType="Ellipse">
@@ -971,7 +974,34 @@ ResizeMode="CanResize">
                                                                FontWeight="SemiBold" FontSize="11"
                                                                TextTrimming="CharacterEllipsis" MaxWidth="80"/>
                                                 </StackPanel>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+
+                                                <!-- 중앙: 송출중 표시 -->
+                                                <Border Grid.Column="1" 
+                                                        Background="#1A2332" 
+                                                        CornerRadius="6" 
+                                                        Padding="8,3"
+                                                        Margin="8,0"
+                                                        VerticalAlignment="Center">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasRtsp}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="● 송출중"
+                                                               Foreground="#3CE48C"
+                                                               FontSize="10"
+                                                               FontWeight="Bold"
+                                                               TextAlignment="Center"
+                                                               VerticalAlignment="Center"/>
+                                                </Border>
+
+                                                <!-- 오른쪽: 배터리 + 버튼들 -->
+                                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                                     <!-- 배터리 표시: 번개(왼쪽) + 배터리 이미지(퍼센트 내장) -->
                                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
                                                         <!-- 충전 아이콘 (⚡) - 배터리 왼쪽 -->

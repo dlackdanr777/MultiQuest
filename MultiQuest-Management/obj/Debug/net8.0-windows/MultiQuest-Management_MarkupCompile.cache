@@ -4,16 +4,16 @@
 winexe
 C#
 .cs
-F:\WPF\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\
+D:\UnityGame\MultiQuest\MultiQuest-Management\obj\Debug\net8.0-windows\
 MultiQuest_Management
 none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
-F:\WPF\MultiQuest\MultiQuest-Management\App.xaml
+D:\UnityGame\MultiQuest\MultiQuest-Management\App.xaml
 7494373773
-1305-2130619978
+13051510865258
 161901436008
-211812901407
+211-876908132
 AddDeviceWindow.xaml;DeviceWindow.xaml;MainWindow.xaml;ProgressWindow.xaml;RtspMirrorWindow.xaml;SettingWindow.xaml;UpdateWindow.xaml;
 
 False
