@@ -975,29 +975,51 @@ ResizeMode="CanResize">
                                                                TextTrimming="CharacterEllipsis" MaxWidth="80"/>
                                                 </StackPanel>
 
-                                                <!-- 중앙: 송출중 표시 -->
+                                                <!-- 중앙: 송출 상태 표시 (StreamState 기반) -->
+                                                <!-- RUNNING 또는 STARTING 상태일 때만 표시 -->
                                                 <Border Grid.Column="1" 
-                                                        Background="#1A2332" 
                                                         CornerRadius="6" 
                                                         Padding="8,3"
                                                         Margin="8,0"
                                                         VerticalAlignment="Center">
                                                     <Border.Style>
                                                         <Style TargetType="Border">
+                                                            <!-- 기본값: 숨김 (STOPPED, null, 빈 문자열 등) -->
                                                             <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Setter Property="Background" Value="#1A2332" />
                                                             <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding HasRtsp}" Value="True">
+                                                                <!-- RUNNING 상태: 송출 중 -->
+                                                                <DataTrigger Binding="{Binding StreamState}" Value="RUNNING">
                                                                     <Setter Property="Visibility" Value="Visible" />
+                                                                    <Setter Property="Background" Value="#1A2332" />
+                                                                </DataTrigger>
+                                                                <!-- STARTING 상태: 준비 중 -->
+                                                                <DataTrigger Binding="{Binding StreamState}" Value="STARTING">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                    <Setter Property="Background" Value="#2A2316" />
                                                                 </DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </Border.Style>
-                                                    <TextBlock Text="● 송출중"
-                                                               Foreground="#3CE48C"
-                                                               FontSize="10"
+                                                    <TextBlock FontSize="10"
                                                                FontWeight="Bold"
                                                                TextAlignment="Center"
-                                                               VerticalAlignment="Center"/>
+                                                               VerticalAlignment="Center">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding StreamState}" Value="RUNNING">
+                                                                        <Setter Property="Text" Value="● 송출중" />
+                                                                        <Setter Property="Foreground" Value="#3CE48C" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding StreamState}" Value="STARTING">
+                                                                        <Setter Property="Text" Value="◐ 준비중" />
+                                                                        <Setter Property="Foreground" Value="#FFA500" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
                                                 </Border>
 
                                                 <!-- 오른쪽: 배터리 + 버튼들 -->

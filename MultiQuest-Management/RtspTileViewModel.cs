@@ -21,6 +21,7 @@ namespace MultiQuest_Management
         private string _qualityLevel = "-";
         private double _bufferingRate = 0.0;
         private int _networkCaching = 0;
+        private bool _isPlaying = false;
 
         public QuestAgentInfo Agent { get; }
 
@@ -33,6 +34,20 @@ namespace MultiQuest_Management
 
         public string Subtitle =>
             $"{Agent.Host}:{Agent.StatusPort} / Battery {Agent.Battery}%";
+
+        /// <summary>
+        /// 실제로 재생 중인지 여부 (MediaPlayer.IsPlaying 상태)
+        /// </summary>
+        public bool IsPlaying
+        {
+            get => _isPlaying;
+            private set
+            {
+                if (_isPlaying == value) return;
+                _isPlaying = value;
+                OnPropertyChanged();
+            }
+        }
 
         public string Status
         {
@@ -102,23 +117,36 @@ namespace MultiQuest_Management
             };
 
             MediaPlayer.Playing += (_, __) =>
+            {
                 SetStatus("재생 중", System.Windows.Media.Brushes.LightGreen);
+                IsPlaying = true;
+            };
 
             MediaPlayer.Buffering += (_, e) =>
             {
                 _bufferingCount++;
                 _qualityManager.RecordBuffering(Agent.Host);
                 SetStatus("버퍼링", System.Windows.Media.Brushes.Khaki);
+                // 버퍼링 중에도 재생 중으로 간주
             };
 
             MediaPlayer.EncounteredError += (_, __) =>
+            {
                 SetStatus("재생 오류", System.Windows.Media.Brushes.OrangeRed);
+                IsPlaying = false;
+            };
 
             MediaPlayer.Stopped += (_, __) =>
+            {
                 SetStatus("중지됨", System.Windows.Media.Brushes.LightGray);
+                IsPlaying = false;
+            };
 
             MediaPlayer.EndReached += (_, __) =>
+            {
                 SetStatus("스트림 종료됨", System.Windows.Media.Brushes.Orange);
+                IsPlaying = false;
+            };
         }
 
         public void Start(int activeStreamCount)
@@ -192,6 +220,7 @@ namespace MultiQuest_Management
                 _qualityManager.UnregisterStream(Agent.Host);
                 MediaPlayer.Stop();
                 _lastPlayedUrl = null; // URL 추적 초기화
+                IsPlaying = false;
             }
             catch
             {
@@ -262,6 +291,7 @@ namespace MultiQuest_Management
             if (_disposed) return;
             _disposed = true;
 
+            IsPlaying = false;
             try { _qualityManager.UnregisterStream(Agent.Host); } catch { }
             try { MediaPlayer.Stop(); } catch { }
             try { _media?.Dispose(); } catch { }
