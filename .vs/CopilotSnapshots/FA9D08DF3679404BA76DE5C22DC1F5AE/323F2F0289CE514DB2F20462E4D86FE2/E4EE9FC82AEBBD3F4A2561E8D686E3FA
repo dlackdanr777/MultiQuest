@@ -1,0 +1,2781 @@
+﻿// MainWindow.cs
+using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO; // ← NuGet: Zeroconf
+using System.Net;
+using System.Net.Http;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Shell;
+using System.Windows.Threading;
+using Zeroconf;
+using LibVLCSharp.Shared;
+using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using Window = System.Windows.Window;
+
+
+namespace MultiQuest_Management
+{
+    public partial class MainWindow : Window
+    {
+        public event Action<Device> AddDeviceEvent;
+        public ObservableCollection<Device> Devices { get; set; } = new();
+
+        private DispatcherTimer _statusCheckTimer;
+        private DispatcherTimer _qualityInfoTimer;
+        // 각 콘텐츠별 패키지 후보 목록 (XAML 버튼 Tag와 인덱스 동일)
+        // 앞에 있는 패키지부터 순서대로 실행 시도하며, 설치된 것이 있으면 실행
+        private readonly string[][] _pkgNames =
+        {
+            // Tag=0: 영어마을
+            new[] { "com.StoryWing.EnglishTown",        "com.StoryWing.AlphabatApp" },
+            // Tag=1: 해양탐험
+            new[] { "com.StoryWing.Ocean_Adventure",    "com.StoryWing.OceanAdventure" },
+            // Tag=2: 한국사
+            new[] { "com.StoryWing.Korea_History",      "com.StoryWing.KoreaHistory2" },
+            // Tag=3: 태양계/우주
+            new[] { "com.StoryWing.Solar_System",       "com.StoryWing.SpaceApp" },
+            // Tag=4: 소방안전
+            new[] { "com.StoryWing.Fire_Safety",        "com.StoryWing.FirepreventionApp" },
+            // Tag=5: 쥬라기공원
+            new[] { "com.StoryWing.Jurassic" },
+            // Tag=6: 브레인팝
+            new[] { "com.StoryWing.BrainPop",           "com.StoryWing.XR_BrainTraining" },
+            // Tag=7: 스마트팜
+            new[] { "com.StoryWing.SmartFarm",          "com.StoryWing.GyeongjuMR" },
+            // Tag=8: 박물관
+            new[] { "com.StoryWing.Museum",             "com.StoryWing.XR_Museum" },
+            // Tag=9: 세계여행
+            new[] { "com.StoryWing.World_Travel",       "com.StoryWing.XR_WorldMap" },
+            // Tag=10: 해양 관람
+            new[] { "com.StoryWing.OceanAdventure_ViewVer" },
+            // Tag=11: 우주 관람
+            new[] { "com.StoryWing.SpaceAppTest" },
+            // Tag=12: 코딩
+            new[] { "com.StoryWing.XR_Coding" },
+            // Tag=13: 영어
+            new[] { "com.StoryWing.Storywing_Class", "com.StoryWing.StorywingClass"  },
+        };
+        private CancellationTokenSource _scanCancelSource;
+        private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
+
+        private LibVLC _rtspLibVlc;
+        private RtspQualityManager _rtspQualityManager;
+        private bool _isRefreshing;
+
+        // Scrcpy and ADB removed - using RTSP + HTTP Agent only
+
+        // 네트워크 안정성:
+        private readonly Dictionary<string, int> _missCounts = new(StringComparer.OrdinalIgnoreCase);
+        private readonly object _missLock = new();
+
+        private bool _isShuttingDown;
+        private volatile bool _isStatusCheckRunning;
+
+        // Agent 디바이스 재연결 관리
+        private readonly Dictionary<string, DateTime> _agentReconnectAttempts = new(StringComparer.OrdinalIgnoreCase);
+
+        // RTSP 복구 상태 추적
+        private readonly object _rtspHealthLock = new();
+        private readonly HashSet<string> _rtspWasDown = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTime> _lastRtspHardRestartUtc = new(StringComparer.OrdinalIgnoreCase);
+        // HardRestart 횟수 (2회 이상 시 SW 디코딩 fallback)
+        private readonly Dictionary<string, int> _rtspHardRestartCounts = new(StringComparer.OrdinalIgnoreCase);
+        // 동시 HardRestart 방지 (같은 기기에 중복 실행 차단)
+        private readonly HashSet<string> _rtspRestartInProgress = new(StringComparer.OrdinalIgnoreCase);
+
+        // Device scanning flag
+        private bool _isScanning;
+
+        // IPv4 또는 IPv4:PORT 형태만 허용
+        private static bool IsValidIpEndpoint(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var s = value.Trim();
+            // ip:port
+            var idx = s.LastIndexOf(':');
+            if (idx > 0 && idx < s.Length - 1)
+            {
+                var host = s.Substring(0, idx);
+                var portStr = s[(idx + 1)..];
+                if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork &&
+                    int.TryParse(portStr, out var port) && port > 0 && port <= 65535)
+                {
+                    return true;
+                }
+            }
+            // ip only
+            return IPAddress.TryParse(s, out var ipOnly) && ipOnly.AddressFamily == AddressFamily.InterNetwork;
+        }
+
+        public MainWindow()
+        {
+            // EnsureAdbRunning removed - ADB not needed
+            InitializeComponent();
+
+            Core.Initialize();
+
+            _rtspLibVlc = new LibVLC(
+                "--no-audio",
+                "--rtsp-tcp",
+                "--network-caching=250",
+                "--live-caching=250"
+            );
+
+            _rtspQualityManager = new RtspQualityManager();
+
+            // WindowState는 Window_Loaded에서 설정
+            DataContext = this;
+
+            // 종료 시점 감지 (메시지 박스 등 UI 호출 방지)
+            this.Closing += (_, __) => _isShuttingDown = true;
+
+            // 자동 미러링을 위한 구독
+            Devices.CollectionChanged += Devices_CollectionChanged;
+            this.StateChanged += Window_StateChanged;
+            this.SourceInitialized += Window_SourceInitialized;
+            this.Loaded += Window_Loaded;
+
+            // 통합 상태 체크 타이머: 배터리, RTSP, 오프라인 감지 (5초 주기)
+            _statusCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _statusCheckTimer.Tick += UpdateStatus;
+            _statusCheckTimer.Start();
+
+            // 품질 정보 업데이트 타이머: 5초마다 RTSP 품질 정보를 UI에 반영
+            _qualityInfoTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _qualityInfoTimer.Tick += QualityInfoTimer_Tick;
+            _qualityInfoTimer.Start();
+
+            SettingsService.Instance.Changed += OnChangeSerialName;
+            OnChangeSerialName(_serialNameDic);
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
+
+            // 에디션에 따라 코딩/영어 버튼 표시 여부 결정
+            ApplyEditionVisibility();
+        }
+
+        private void ApplyEditionVisibility()
+        {
+            bool isFull = UpdateService.GetLocalEdition() == UpdateService.EditionFull;
+            var vis = isFull ? Visibility.Visible : Visibility.Collapsed;
+            BtnXrCoding.Visibility  = vis;
+            BtnXrEnglish.Visibility = vis;
+        }
+
+        // Tiles_LayoutUpdated는 제거됨 — Window_SizeChanged + ItemContainerGenerator_StatusChanged로 대체
+        // LayoutUpdated는 매 프레임 수십 번 발생하므로 MoveWindow 과호출 → scrcpy 깜빡임 유발
+
+        // 현재 살아있는 scrcpy 프로세스들을 각 디바이스의 PART_MirrorHost에 맞춰 재부착/재설정
+
+
+        /// <summary>
+        /// Agent 디바이스 재연결 시도 예약
+        /// Failed 상태의 Agent 디바이스를 주기적으로 재탐지하여 자동 재연결
+        /// </summary>
+        private void ScheduleAgentReconnect(Device device)
+        {
+            if (device == null || string.IsNullOrWhiteSpace(device.AgentHost)) return;
+
+            lock (_agentReconnectAttempts)
+            {
+                var now = DateTime.UtcNow;
+
+                // 이미 재연결 시도 중이면 스킵
+                if (_agentReconnectAttempts.TryGetValue(device.Ip, out var lastAttempt))
+                {
+                    // 최소 10초 간격으로 재시도
+                    if ((now - lastAttempt).TotalSeconds < 10)
+                        return;
+                }
+
+                // 재연결 시도 시간 기록
+                _agentReconnectAttempts[device.Ip] = now;
+            }
+
+            // 백그라운드에서 재연결 시도
+            Task.Run(async () =>
+            {
+                try
+                {
+                    // ConnectionCheckTimer가 다시 체크하므로 여기서는 단순히 다음 체크 주기를 기다림
+                    // 실제 상태는 ConnectionCheckTimer_Tick에서 업데이트됨
+                    Debug.WriteLine($"[Agent Reconnect] Scheduled reconnection attempt for {device.Name} ({device.AgentHost}:{device.AgentStatusPort})");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Agent Reconnect] Error scheduling reconnection for {device.Name}: {ex.Message}");
+                }
+            });
+        }
+
+
+        /// <summary>
+        /// 통합 상태 체크: 배터리, RTSP, 오프라인 감지를 짧은 주기로 처리
+        /// </summary>
+        private async void UpdateStatus(object? sender, EventArgs e)
+        {
+            if (_isStatusCheckRunning) return;
+            _isStatusCheckRunning = true;
+            try
+            {
+                var targets = Devices
+                    .Where(d => d != null && !string.IsNullOrWhiteSpace(d.AgentHost))
+                    .ToList();
+
+                if (targets.Count == 0) return;
+
+                // 1초 타임아웃으로 병렬 조회
+                var tasks = targets.Select(device => Task.Run(async () =>
+                {
+                    var status = await AgentApi.GetStatusFastAsync(
+                        device.AgentHost, device.AgentStatusPort);
+                    return (Ip: device.Ip, Status: status);
+                }));
+
+                var results = await Task.WhenAll(tasks);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    foreach (var item in results)
+                    {
+                        string ip = item.Ip;
+                        QuestAgentInfo status = item.Status;
+
+                        // DeviceId 우선, 없으면 IP 폴백
+                        Device d;
+                        if (status != null && !string.IsNullOrWhiteSpace(status.DeviceId))
+                            d = Devices.FirstOrDefault(x =>
+                                string.Equals(x.AgentDeviceId, status.DeviceId, StringComparison.OrdinalIgnoreCase))
+                              ?? Devices.FirstOrDefault(x => x.Ip == ip);
+                        else
+                            d = Devices.FirstOrDefault(x => x.Ip == ip);
+
+                        if (d == null) continue;
+
+                        // DeviceId 갱신
+                        if (status != null && !string.IsNullOrWhiteSpace(status.DeviceId))
+                            d.AgentDeviceId = status.DeviceId;
+
+                        if (status == null)
+                        {
+                            // 응답 없음 → 즉시 Failed
+                            int miss;
+                            lock (_missLock)
+                            {
+                                _missCounts.TryGetValue(d.Ip, out miss);
+                                _missCounts[d.Ip] = ++miss;
+                            }
+
+                            if (miss >= 2 && d.Status != "Failed")
+                            {
+                                d.Status = "Failed";
+                                d.StreamState = null;
+                                // RTSP 타일 정지
+                                try { d.Rtsp?.Stop(); } catch { }
+                                Debug.WriteLine($"[Offline] {d.Name} ({d.AgentHost}) 오프라인 감지 (miss={miss})");
+                            }
+                        }
+                        else
+                        {
+                            // 응답 성공
+                            lock (_missLock) { _missCounts[d.Ip] = 0; }
+
+                            if (d.Status == "Failed" || d.Status == "AgentOnly")
+                            {
+                                d.Status = "Connected";
+                                Debug.WriteLine($"[Online] {d.Name} ({d.AgentHost}) 재연결");
+                                // RTSP URL이 있으면 타일 재시작
+                                if (!string.IsNullOrWhiteSpace(d.RtspUrl))
+                                    HardRestartRtspTile(d, "reconnected");
+                            }
+
+                            if (status.Battery >= 0)  d.BatteryLevel  = status.Battery;
+                            d.IsCharging   = status.IsCharging;
+                            if (!string.IsNullOrEmpty(status.ChargingStatus))
+                                d.ChargingStatus = status.ChargingStatus;
+                            if (!string.IsNullOrEmpty(status.Serial) && string.IsNullOrEmpty(d.Serial))
+                                d.Serial = status.Serial;
+
+                            if (!string.IsNullOrWhiteSpace(status.StreamState))
+                            {
+                                bool httpStopped =
+                                    string.Equals(status.StreamState, "STOPPED", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(status.StreamState, "IDLE", StringComparison.OrdinalIgnoreCase);
+                                bool rtspFrozen = d.Rtsp?.IsFrozen == true;
+                                bool httpSaysActive =
+                                    string.Equals(status.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(status.StreamState, "STARTING", StringComparison.OrdinalIgnoreCase);
+
+                                if (httpStopped)
+                                {
+                                    // Agent가 STOPPED/IDLE을 보낸 경우 → RTSP 타일 즉시 정지
+                                    d.StreamState = status.StreamState;
+                                    if (d.Rtsp != null && d.Rtsp.IsPlaying)
+                                    {
+                                        Debug.WriteLine($"[StreamStop] {d.Name} Agent {status.StreamState} → RTSP 타일 정지");
+                                        try { d.Rtsp.Stop(); } catch { }
+                                    }
+                                }
+                                else if (rtspFrozen && httpSaysActive)
+                                {
+                                    // RTSP 타일이 이미 프리즈 감지 → HTTP의 RUNNING 무시
+                                    d.StreamState = "FROZEN";
+                                }
+                                else
+                                {
+                                    d.StreamState = status.StreamState;
+                                }
+                            }
+
+                            // 이름 우선순위
+                            if (!string.IsNullOrWhiteSpace(status.DeviceName))
+                                d.Name = status.DeviceName.Trim();
+                            else if (!string.IsNullOrEmpty(d.Serial)
+                                && _serialNameDic.TryGetValue(d.Serial, out var mapped)
+                                && !string.IsNullOrWhiteSpace(mapped))
+                                d.Name = mapped.Trim();
+
+                            // RTSP URL 변경 체크
+                            if (!string.IsNullOrEmpty(status.RtspUrl) && d.RtspUrl != status.RtspUrl)
+                            {
+                                d.RtspUrl = status.RtspUrl;
+                                if (d.Rtsp != null)
+                                    HardRestartRtspTile(d, "RTSP URL changed");
+                            }
+                            else if (!string.IsNullOrEmpty(status.RtspUrl))
+                            {
+                                d.RtspUrl = status.RtspUrl;
+                            }
+
+                            Debug.WriteLine(
+                                $"[Status] {d.Name} ({d.AgentHost}) " +
+                                $"state={d.StreamState} frames={status.EncodedFrameCount} " +
+                                $"lastFrameAgeMs={(status.LastFrameAtMs > 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - status.LastFrameAtMs : -1)} " +
+                                $"rtspClients={status.RtspClientCount} " +
+                                $"vlcPlaying={d.Rtsp?.IsPlaying} vlcFrozen={d.Rtsp?.IsFrozen}");
+                            _ = CheckRtspRecoveryAsync(d.Ip, d.RtspUrl, d.StreamState);
+                            _ = CheckRtspClientStallAsync(d);
+
+                            // ── 인코더 stall 감지 ──────────────────────────────────────
+                            // Agent가 RUNNING인데 encodedFrameCount / lastFrameAtMs가 멈춰 있으면
+                            // 인코더 문제로 판단 → restartCapture + HardRestart
+                            bool agentRunning = string.Equals(d.StreamState, "RUNNING",
+                                StringComparison.OrdinalIgnoreCase);
+
+                            if (agentRunning && d.Rtsp != null)
+                            {
+                                bool hasFrameCount = status.EncodedFrameCount > 0;
+                                bool hasFrameTime  = status.LastFrameAtMs > 0;
+
+                                if (hasFrameCount || hasFrameTime)
+                                {
+                                    // lastFrameAtMs 기반: Agent 기준으로 마지막 프레임이 얼마나 됐는지
+                                    if (hasFrameTime)
+                                    {
+                                        long nowMs  = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                                        long ageSec = (nowMs - status.LastFrameAtMs) / 1000;
+
+                                        if (ageSec >= 8)
+                                        {
+                                            string key = $"encstall:{d.AgentHost}";
+                                            if (CanHardRestartRtsp(key, cooldownMs: 20_000))
+                                            {
+                                                Debug.WriteLine(
+                                                    $"[EncStall] {d.Name} lastFrameAtMs={status.LastFrameAtMs} " +
+                                                    $"→ {ageSec}초 경과. 인코더 stall. restartCapture + HardRestart");
+                                                d.LastKnownEncodedFrameCount = -1;
+                                                d.EncodedFrameCountSameAtUtc = DateTime.MinValue;
+                                                _ = AgentApi.RestartCaptureAsync(d.AgentHost, d.AgentStatusPort);
+                                                HardRestartRtspTile(d, "encoder stall: lastFrameAtMs frozen");
+                                            }
+                                        }
+                                    }
+                                    // encodedFrameCount 기반: 폴링 사이에 카운트가 늘지 않으면 stall
+                                    else if (hasFrameCount)
+                                    {
+                                        if (d.LastKnownEncodedFrameCount != status.EncodedFrameCount)
+                                        {
+                                            d.LastKnownEncodedFrameCount = status.EncodedFrameCount;
+                                            d.EncodedFrameCountSameAtUtc = DateTime.UtcNow;
+                                            Debug.WriteLine(
+                                                $"[EncFrame] {d.Name} encodedFrameCount={status.EncodedFrameCount} (증가 중)");
+                                        }
+                                        else if (d.EncodedFrameCountSameAtUtc != DateTime.MinValue)
+                                        {
+                                            var stuckSec = (DateTime.UtcNow - d.EncodedFrameCountSameAtUtc).TotalSeconds;
+                                            if (stuckSec >= 10)
+                                            {
+                                                string key = $"encstall:{d.AgentHost}";
+                                                if (CanHardRestartRtsp(key, cooldownMs: 20_000))
+                                                {
+                                                    Debug.WriteLine(
+                                                        $"[EncStall] {d.Name} encodedFrameCount={status.EncodedFrameCount} " +
+                                                        $"정체 {stuckSec:F0}초. 인코더 stall. restartCapture + HardRestart");
+                                                    d.EncodedFrameCountSameAtUtc = DateTime.MinValue;
+                                                    _ = AgentApi.RestartCaptureAsync(d.AgentHost, d.AgentStatusPort);
+                                                    HardRestartRtspTile(d, "encoder stall: frameCount frozen");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // RUNNING 아닐 때는 트래킹 리셋
+                                d.LastKnownEncodedFrameCount = -1;
+                                d.EncodedFrameCountSameAtUtc = DateTime.MinValue;
+                            }
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                _isStatusCheckRunning = false;
+            }
+        }
+
+        private void OnChangeSerialName(IReadOnlyDictionary<string, string> serialNameDic)
+        {
+            // 최신 스냅샷으로 갱신 (저장 직후 반영 누락 방지)
+            _serialNameDic = serialNameDic ?? new Dictionary<string, string>();
+
+            foreach (var device in Devices)
+            {
+                if (_serialNameDic.TryGetValue(device.Serial, out var name))
+                {
+                    if (device.Name?.Equals(name, StringComparison.Ordinal) == true) continue;
+                    device.Name = name;
+                }
+                else
+                {
+                    device.Name = device.Serial; // 시리얼을 이름으로 사용
+                }
+            }
+            // 이름 변경 즉시 UI 반영
+            UpdateDeviceLabels();
+        }
+
+        // 디바이스 이름(Label) 즉시 반영
+        private void UpdateDeviceLabels()
+        {
+            if (Tiles == null || Devices == null) return;
+            foreach (var device in Devices)
+            {
+                var host = FindInItemTemplate<Border>(Tiles, device, "PART_MirrorHost");
+                if (host == null) continue;
+                var label = FindVisualChildByName<System.Windows.Controls.Label>(host, "DeviceNameLabel");
+                if (label != null) label.Content = device.Name;
+            }
+        }
+
+        /// <summary>
+        /// 품질 정보 업데이트 타이머 이벤트 핸들러
+        /// </summary>
+        private void QualityInfoTimer_Tick(object? sender, EventArgs e)
+        {
+            try
+            {
+                foreach (var device in Devices)
+                {
+                    if (device.Rtsp != null && device.HasRtsp)
+                    {
+                        device.Rtsp.UpdateQualityInfo();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[QualityInfo] Error updating quality info: {ex.Message}");
+            }
+        }
+
+        // ====================== 앱 버튼들 ======================
+
+        // 버튼 클릭 사운드 (UI 스레드에서 논블로킹으로 재생)
+        private static void PlayClickSound()
+        {
+            try { System.Media.SystemSounds.Beep.Play(); } catch { }
+        }
+
+        // 지정된 디바이스에서 설치된 패키지를 순서대로 찾아 실행 (백그라운드 비동기)
+        // 후보 중 하나라도 실행에 성공하면 즉시 반환
+        public async void StartApp(Device device, int index, Action onCompleted = null)
+        {
+            if (device == null)
+            {
+                ShowMsg("기기를 확인하세요.");
+                onCompleted?.Invoke();
+                return;
+            }
+
+            if (index < 0 || index >= _pkgNames.Length)
+            {
+                ShowMsg("패키지 인덱스가 올바르지 않습니다.");
+                onCompleted?.Invoke();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                ShowMsg("이 기기는 Agent로 연결되어 있지 않습니다. Agent 검색을 먼저 실행하세요.");
+                onCompleted?.Invoke();
+                return;
+            }
+
+            string[] candidates = _pkgNames[index];
+
+            bool success = await LaunchCandidatesByAgentAsync(
+                device,
+                candidates,
+                extras: null,
+                forceRestart: true);
+
+            if (!success)
+            {
+                ShowMsg("앱 실행에 실패했습니다. Agent 상태와 앱 설치 여부를 확인하세요.");
+            }
+
+            onCompleted?.Invoke();
+        }
+
+        // ====================== 앱 제어 버튼 ======================
+
+        /// <summary>
+        /// 공통 HTTP Agent 실행 helper - 후보 패키지 순차 시도
+        /// </summary>
+        private async Task<bool> LaunchCandidatesByAgentAsync(
+            Device device,
+            string[] candidates,
+            object extras = null,
+            bool forceRestart = false)
+        {
+            if (device == null)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(device.AgentHost))
+                return false;
+
+            string activity = "com.unity3d.player.UnityPlayerActivity";
+
+            foreach (var pkg in candidates)
+            {
+                bool launched = await AgentApi.LaunchAppAsync(
+                    device.AgentHost,
+                    device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080,
+                    pkg,
+                    activity,
+                    extras,
+                    forceRestart);
+
+                if (launched)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void StartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            var button = sender as Button;
+            var device = button?.DataContext as Device;
+            if (!TryGetPkgIndex(sender, out int index)) { this.IsEnabled = true; return; }
+            StartApp(device, index);
+        }
+
+        // 병렬 처리로 변경 - HTTP Agent API 전용
+        private async void AllDeviceStartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            this.IsEnabled = false;
+
+            try
+            {
+                if (!TryGetPkgIndex(sender, out int index))
+                    return;
+
+                if (Devices.Count == 0)
+                {
+                    ShowMsg("연결된 기기가 없습니다.");
+                    return;
+                }
+
+                var targetDevices = Devices
+                    .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                    .ToList();
+
+                if (targetDevices.Count == 0)
+                {
+                    ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
+                    return;
+                }
+
+                PanelMetaDevice.Visibility   = Visibility.Visible;
+                PanelXrExperience.Visibility = Visibility.Collapsed;
+                PanelXrCoding.Visibility     = Visibility.Collapsed;
+                PanelXrEnglish.Visibility    = Visibility.Collapsed;
+                SetSideButtonActive(BtnMetaDevice);
+
+                string[] candidates = _pkgNames[index];
+
+                var failed = new ConcurrentBag<string>();
+
+                var tasks = targetDevices.Select(async device =>
+                {
+                    bool launched = await LaunchCandidatesByAgentAsync(
+                        device,
+                        candidates,
+                        extras: null,
+                        forceRestart: true);
+
+                    if (!launched)
+                        failed.Add($"{device.Name} ({device.AgentHost})");
+                });
+
+                await Task.WhenAll(tasks);
+
+                if (failed.Count > 0)
+                {
+                    ShowMsg(
+                        $"일부 기기 앱 실행 실패: {failed.Count}개\n" +
+                        string.Join("\n", failed));
+                }
+                else
+                {
+                    ShowMsg("전체 기기 앱 실행 성공");
+                }
+            }
+            finally
+            {
+                this.IsEnabled = true;
+            }
+        }
+
+        // ====================== 코딩 앱 전용 버튼 ======================
+        // 아이콘(Tag=0~27) 클릭 → 레벨(Tag+1) 오버레이 표시 → Unit 1~4 선택 → 앱 실행
+        // Unity 수신: getIntExtra("level", 1), getIntExtra("unit", 1)
+
+        private int _selectedCodingLevel = 1; // 클릭된 아이콘의 레벨(Tag+1)
+
+        // 아이콘 클릭 → 오버레이에 레벨 표시 후 표시
+        private void CodingAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (sender is not Button btn) return;
+            if (!int.TryParse(btn.Tag as string, out int tag) || tag < 0) return;
+
+            _selectedCodingLevel = tag; // Tag=0 → 레벨 0, Tag=27 → 레벨 27
+
+            var titleBlock = (System.Windows.Controls.TextBlock)FindName("CodingOverlayTitle");
+            if (titleBlock != null)
+                titleBlock.Text = $"[XR 코딩 교육]\n레벨 {_selectedCodingLevel + 1}";
+
+            var overlay = (Border)FindName("CodingUnitOverlay");
+            if (overlay != null) overlay.Visibility = Visibility.Visible;
+        }
+
+        // 오버레이 닫기 버튼
+        private void CodingOverlayCloseBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            var overlay = (Border)FindName("CodingUnitOverlay");
+            if (overlay != null) overlay.Visibility = Visibility.Collapsed;
+        }
+
+        // Unit 버튼 클릭 → 전체 기기에 level + lesson 전달 후 앱 실행
+        private async void CodingUnitBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (sender is not Button btn) return;
+            if (!int.TryParse(btn.Tag as string, out int lesson) || lesson < 1 || lesson > 4) return;
+
+            var overlay2 = (Border)FindName("CodingUnitOverlay");
+            if (overlay2 != null) overlay2.Visibility = Visibility.Collapsed;
+            await StartCodingAppAsync(_selectedCodingLevel, lesson);
+        }
+
+        // level + lesson 을 모든 연결 기기에 병렬 전송
+        private async Task StartCodingAppAsync(int level, int lesson)
+        {
+            var targetDevices = Devices
+                .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                .ToList();
+
+            if (targetDevices.Count == 0)
+            {
+                ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
+                return;
+            }
+
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+
+            string[] candidates = _pkgNames[12]; // com.StoryWing.XR_Coding
+
+            var extras = new Dictionary<string, object>
+            {
+                ["stage"] = level,
+                ["lesson"] = lesson
+            };
+
+            var failed = new ConcurrentBag<string>();
+
+            var tasks = targetDevices.Select(async device =>
+            {
+                bool launched = await LaunchCandidatesByAgentAsync(
+                    device,
+                    candidates,
+                    extras,
+                    forceRestart: true);
+
+                if (!launched)
+                    failed.Add($"{device.Name} (stage={level + 1}, lesson={lesson})");
+            });
+
+            await Task.WhenAll(tasks);
+
+            if (failed.Count > 0)
+                ShowMsg($"일부 기기 코딩 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
+            else
+                ShowMsg($"전체 기기 코딩 앱 실행 성공 (Stage {level + 1} / Lesson {lesson})");
+        }
+
+        public async void StopDeviceApp(Device device, Action onCompleted = null)
+        {
+            if (device == null)
+            {
+                ShowMsg("기기를 확인하세요.");
+                onCompleted?.Invoke();
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                ShowMsg("Agent로 연결된 기기가 아닙니다.");
+                onCompleted?.Invoke();
+                return;
+            }
+
+            bool ok = await StopDeviceByBestMethodAsync(device);
+
+            if (!ok)
+                ShowMsg($"{device.Name} 앱 종료 명령 전송 실패");
+
+            onCompleted?.Invoke();
+        }
+
+        /// <summary>
+        /// 단일 기기 앱 종료 - 신규 API 우선, 404 시 패키지별 폴백 포함
+        /// </summary>
+        private Task<bool> StopDeviceByBestMethodAsync(Device device)
+        {
+            int port = device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080;
+            var allPkgs = _pkgNames.SelectMany(c => c).Distinct();
+            return AgentApi.StopAllStoryWingAsync(device.AgentHost, port, goHome: true, fallbackPackages: allPkgs);
+        }
+
+        // 병렬 처리
+        private async void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            this.IsEnabled = false;
+
+            try
+            {
+                var agentDevices = Devices
+                    .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                    .ToList();
+
+                if (agentDevices.Count == 0)
+                {
+                    ShowMsg("Agent로 연결된 기기가 없습니다.");
+                    return;
+                }
+
+                var failed = new ConcurrentBag<string>();
+
+                var tasks = agentDevices.Select(async device =>
+                {
+                    bool ok = await StopDeviceByBestMethodAsync(device);
+
+                    if (!ok)
+                        failed.Add($"{device.Name} ({device.AgentHost}:{(device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080)})");
+                });
+
+                await Task.WhenAll(tasks);
+
+                if (failed.Count > 0)
+                {
+                    ShowMsg(
+                        $"일부 기기 앱 종료 명령 실패:\n" +
+                        string.Join("\n", failed));
+                }
+                else
+                {
+                    ShowMsg("전체 기기 앱 종료 명령 전송 완료");
+                }
+            }
+            finally
+            {
+                this.IsEnabled = true;
+            }
+        }
+
+        // ====================== 검색 오버레이 제어 ======================
+        private DispatcherTimer _spinnerTimer;
+        private double _spinnerAngle = 0;
+
+        private void ShowSearchOverlay(string statusText = "디바이스 탐색 중...")
+        {
+            _isScanning = true;
+            SearchStatusText.Text = statusText;
+            SearchPercentText.Text = "0%";
+
+            // RTSP VideoView Airspace 문제 해결: PanelMetaDevice를 숨겨서 VideoView가 오버레이 위에 표시되지 않도록 함
+            PanelMetaDevice.Visibility = Visibility.Collapsed;
+
+            SearchOverlay.Visibility = Visibility.Visible;
+            BtnMetaDevice.IsEnabled = false;
+            BtnXrExperience.IsEnabled = false;
+            BtnXrCoding.IsEnabled = false;
+            BtnXrEnglish.IsEnabled = false;
+            if (_spinnerTimer == null)
+            {
+                _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+                _spinnerTimer.Tick += (_, __) =>
+                {
+                    _spinnerAngle = (_spinnerAngle + 6) % 360;
+                    SpinnerRotate.Angle = _spinnerAngle;
+                };
+            }
+            _spinnerAngle = 0;
+            _spinnerTimer.Start();
+        }
+
+        private void HideSearchOverlay()
+        {
+            _isScanning = false;
+            _spinnerTimer?.Stop();
+            SearchOverlay.Visibility = Visibility.Collapsed;
+
+            // PanelMetaDevice를 다시 표시 (검색 전 상태로 복원)
+            PanelMetaDevice.Visibility = Visibility.Visible;
+
+            BtnMetaDevice.IsEnabled = true;
+            BtnXrExperience.IsEnabled = true;
+            BtnXrCoding.IsEnabled = true;
+            BtnXrEnglish.IsEnabled = true;
+        }
+
+
+        private void SearchCancelBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _scanCancelSource?.Cancel();
+        }
+
+        private async void AgentSearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            // 기존 검색 취소
+            _scanCancelSource?.Cancel();
+            _scanCancelSource?.Dispose();
+            _scanCancelSource = new CancellationTokenSource();
+
+            ShowSearchOverlay("MultiQuest Agent 검색 중...");
+
+            try
+            {
+                var agents = await AgentMdnsDiscovery.DiscoverAsync(
+                    mdnsTimeoutMs: 3000,
+                    directScanTimeoutMs: 2500,
+                    cancellationToken: _scanCancelSource.Token);
+
+                if (agents.Count == 0)
+                {
+                    HideSearchOverlay();
+
+                    MessageBox.Show(
+                        "MultiQuest Agent를 찾지 못했습니다.\n\n" +
+                        "확인 순서:\n" +
+                        "1. Quest와 PC가 같은 공유기/LAN인지 확인\n" +
+                        "2. PC에서 curl http://QuestIP:18080/status 테스트\n" +
+                        "3. 공유기 AP Isolation / Client Isolation 꺼져 있는지 확인\n" +
+                        "4. Android 로그에서 MQ-HTTP: HTTP server started on port=18080 확인",
+                        "Agent 검색 실패",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                var rtspAgents = new List<QuestAgentInfo>();
+                var warnings = new List<string>();
+
+                foreach (var agent in agents)
+                {
+                    if (string.IsNullOrWhiteSpace(agent.RtspUrl))
+                        continue;
+
+                    if (!TryGetRtspEndpoint(agent.RtspUrl, out var rtspHost, out var rtspPort))
+                    {
+                        warnings.Add($"{agent.Model} - RTSP URL 파싱 실패: {agent.RtspUrl}");
+                        continue;
+                    }
+
+                    bool isStreamingOrStarting =
+                        string.Equals(agent.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(agent.StreamState, "STARTING", StringComparison.OrdinalIgnoreCase);
+
+                    // RTSP 포트에 직접 TCP 접속하지 않습니다.
+                    // stopped여도 RTSP URL이 있으면 일단 타일에 넣고 재생 시도
+                    rtspAgents.Add(agent);
+
+                    // RUNNING이나 STARTING 상태가 아닐 때만 경고 표시
+                    if (!isStreamingOrStarting)
+                    {
+                        warnings.Add(
+                            $"{agent.Model} / {rtspHost}:{rtspPort}\n" +
+                            $"streamState={agent.StreamState}");
+                    }
+                }
+
+                if (rtspAgents.Count == 0)
+                {
+                    HideSearchOverlay();
+
+                    MessageBox.Show(
+                        "Agent는 찾았지만 RTSP URL이 있는 기기가 없습니다.\n\n" +
+                        string.Join("\n\n", agents.Select(a => a.ToString())),
+                        $"MultiQuest Agent 발견: {agents.Count}개",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                ApplyRtspAgentsToDeviceTiles(rtspAgents);
+
+                PanelMetaDevice.Visibility   = Visibility.Visible;
+                PanelXrExperience.Visibility = Visibility.Collapsed;
+                PanelXrCoding.Visibility     = Visibility.Collapsed;
+                PanelXrEnglish.Visibility    = Visibility.Collapsed;
+                SetSideButtonActive(BtnMetaDevice);
+
+                // Agent 검색 후 즉시 상태 업데이트
+                UpdateStatus(null, null);
+
+                HideSearchOverlay();
+
+                if (warnings.Count > 0)
+                {
+                    MessageBox.Show(
+                        "RTSP URL이 있어 재생을 시도합니다.\n" +
+                        "다만 Agent 상태와 실제 RTSP 포트 상태가 불일치합니다.\n\n" +
+                        string.Join("\n\n", warnings),
+                        "RTSP 상태 경고",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        $"RTSP 미러링 타일 적용 완료: {rtspAgents.Count}개",
+                        "RTSP 미러링",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 사용자가 취소한 경우
+                HideSearchOverlay();
+            }
+            catch (Exception ex)
+            {
+                HideSearchOverlay();
+
+                MessageBox.Show(
+                    $"Agent 검색 중 오류가 발생했습니다:\n{ex.Message}",
+                    "오류",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                // CancellationTokenSource 정리
+                _scanCancelSource?.Dispose();
+                _scanCancelSource = null;
+            }
+        }
+
+        private static bool TryGetRtspEndpoint(string rtspUrl, out string host, out int port)
+        {
+            host = null;
+            port = 0;
+
+            try
+            {
+                if (!Uri.TryCreate(rtspUrl, UriKind.Absolute, out var uri))
+                    return false;
+
+                if (!string.Equals(uri.Scheme, "rtsp", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                host = uri.Host;
+                port = uri.Port > 0 ? uri.Port : 8554;
+
+                return !string.IsNullOrWhiteSpace(host) && port > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void ApplyRtspAgentsToDeviceTiles(IReadOnlyList<QuestAgentInfo> agents)
+        {
+            if (agents == null || agents.Count == 0)
+                return;
+
+            var activeAgentHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int activeStreamCount = 0;
+
+            foreach (var agent in agents)
+            {
+                string host = NormalizeAgentHost(agent);
+                if (string.IsNullOrWhiteSpace(host))
+                    continue;
+
+                activeAgentHosts.Add(host);
+
+                var device = FindDeviceByAgentInfo(agent);
+
+                if (device == null)
+                {
+                    device = new Device
+                    {
+                        Serial = !string.IsNullOrWhiteSpace(agent.DeviceId) ? agent.DeviceId : host,
+                        Ip = host,
+                        Status = "AgentOnly",
+                        Name = !string.IsNullOrWhiteSpace(agent.Model) ? agent.Model : host
+                    };
+
+                    Devices.Add(device);
+                }
+
+                // DeviceId 저장 (이후 FindDeviceByAgentInfo에서 deviceId로 먼저 지마)
+                if (!string.IsNullOrWhiteSpace(agent.DeviceId))
+                    device.AgentDeviceId = agent.DeviceId;
+
+                device.AgentHost = host;
+                device.AgentStatusPort = agent.StatusPort;
+                device.RtspUrl = agent.RtspUrl;
+                device.BatteryLevel = agent.Battery >= 0 ? agent.Battery : device.BatteryLevel;
+                device.IsCharging = agent.IsCharging;
+                device.ChargingStatus = agent.ChargingStatus;
+
+                // 시리얼이 없으면 Agent에서 가져오기
+                if (string.IsNullOrEmpty(device.Serial) && !string.IsNullOrEmpty(agent.Serial))
+                {
+                    device.Serial = agent.Serial;
+                }
+
+                // 이름 설정 우선순위 (빈 문자열과 공백 체크 강화):
+                // 1. Agent가 보낸 고유 식별 이름 (deviceName) - 비어있지 않고 공백이 아닐 때만
+                // 2. Settings에서 시리얼로 매핑한 이름
+                // 3. Agent의 Model 정보 (Quest 3, Quest 3S 등)
+                // 4. Serial 또는 Host
+                if (!string.IsNullOrWhiteSpace(agent.DeviceName))
+                {
+                    device.Name = agent.DeviceName.Trim();
+                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Agent: '{device.Name}'");
+                }
+                else if (!string.IsNullOrEmpty(device.Serial) && 
+                    _serialNameDic.TryGetValue(device.Serial, out var customName) &&
+                    !string.IsNullOrWhiteSpace(customName))
+                {
+                    device.Name = customName.Trim();
+                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Settings: '{device.Name}'");
+                }
+                else if (!string.IsNullOrWhiteSpace(agent.Model) &&
+                         (string.IsNullOrWhiteSpace(device.Name) || device.Name == device.Serial || device.Name == host))
+                {
+                    device.Name = agent.Model.Trim();
+                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Model: '{device.Name}'");
+                }
+                else if (string.IsNullOrWhiteSpace(device.Name))
+                {
+                    device.Name = !string.IsNullOrEmpty(device.Serial) ? device.Serial : host;
+                    Debug.WriteLine($"[ApplyAgents] Device {host} name fallback: '{device.Name}'");
+                }
+
+                bool needNewTile =
+                    device.Rtsp == null ||
+                    !string.Equals(device.Rtsp.Agent.RtspUrl, agent.RtspUrl, StringComparison.OrdinalIgnoreCase);
+
+                if (needNewTile)
+                {
+                    try { device.Rtsp?.Dispose(); } catch { }
+
+                    var rtsp = new RtspTileViewModel(_rtspLibVlc, agent, _rtspQualityManager);
+                    rtsp.FrozenDetected += (s, _) => OnRtspFrozen(device);
+                    var capturedHost = host;
+                    rtsp.VideoAliveRestored += (s, _) =>
+                    {
+                        string k = $"stall:{capturedHost}";
+                        lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(k); }
+                    };
+                    device.Rtsp = rtsp;
+                }
+
+                activeStreamCount++;
+            }
+
+            // 모든 스트림 시작 (동시 스트림 수 전달)
+            foreach (var agent in agents)
+            {
+                string host = NormalizeAgentHost(agent);
+                var device = FindDeviceByAgentHost(host);
+                if (device?.Rtsp != null)
+                {
+                    device.Rtsp.Start(activeStreamCount);
+                }
+            }
+
+            foreach (var device in Devices.ToList())
+            {
+                if (string.IsNullOrWhiteSpace(device.AgentHost))
+                    continue;
+
+                if (!activeAgentHosts.Contains(device.AgentHost))
+                {
+                    try { device.Rtsp?.Stop(); } catch { }
+                }
+            }
+        }
+
+        private Device FindDeviceByAgentHost(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return null;
+
+            return Devices.FirstOrDefault(d =>
+                string.Equals(GetHostOnly(d.Ip), host, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(d.AgentHost, host, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private Device FindDeviceByAgentInfo(QuestAgentInfo agent)
+        {
+            if (agent == null) return null;
+
+            // 1위: deviceId 일치 (가장 신뢰성 높음)
+            if (!string.IsNullOrWhiteSpace(agent.DeviceId))
+            {
+                var byId = Devices.FirstOrDefault(d =>
+                    string.Equals(d.AgentDeviceId, agent.DeviceId, StringComparison.OrdinalIgnoreCase));
+                if (byId != null) return byId;
+            }
+
+            // 2위: host/IP 매칭
+            string host = NormalizeAgentHost(agent);
+            return FindDeviceByAgentHost(host);
+        }
+
+        private static string NormalizeAgentHost(QuestAgentInfo agent)
+        {
+            if (agent == null)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(agent.Host))
+                return agent.Host.Trim();
+
+            if (!string.IsNullOrWhiteSpace(agent.Ip))
+                return agent.Ip.Trim();
+
+            return null;
+        }
+
+        private static string GetHostOnly(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return value;
+
+            var s = value.Trim();
+
+            int idx = s.LastIndexOf(':');
+            if (idx > 0 && idx < s.Length - 1)
+            {
+                string host = s.Substring(0, idx);
+                if (IPAddress.TryParse(host, out _))
+                    return host;
+            }
+
+            return s;
+        }
+
+        private void DeleteDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is Device device)
+            {
+                // ADB disconnect removed - HTTP Agent only
+
+                // 컨렉션에서 제거 (→ UnhookDevice 자동 호출)
+                Devices.Remove(device);
+            }
+        }
+
+        private void OnClose(object sender, EventArgs e)
+        {
+            // 이벤트 구독 해제 및 타이머 정지
+            try { SettingsService.Instance.Changed -= OnChangeSerialName; } catch { }
+            try { _statusCheckTimer?.Stop(); } catch { }
+
+            // RTSP 정리
+            foreach (var device in Devices)
+            {
+                try { device.Rtsp?.Dispose(); } catch { }
+                device.Rtsp = null;
+            }
+
+            try { _rtspQualityManager?.Dispose(); } catch { }
+            try { _rtspLibVlc?.Dispose(); } catch { }
+        }
+
+        // ================== Window 제어 버튼 이벤트 핸들러 ==================
+        private void MinimizeWindow_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        private void MaximizeRestoreWindow_Click(object sender, RoutedEventArgs e)
+        {
+            if (WindowState == WindowState.Maximized || 
+                (Width == SystemParameters.WorkArea.Width && Height == SystemParameters.WorkArea.Height))
+            {
+                // 복원
+                WindowState = WindowState.Normal;
+                Width = 1280;
+                Height = 750;
+                // 화면 중앙에 배치
+                Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
+                Top = (SystemParameters.PrimaryScreenHeight - Height) / 2;
+                MaximizeRestoreButton.Content = "□";
+            }
+            else
+            {
+                // 최대화
+                MaximizeToWorkArea();
+                MaximizeRestoreButton.Content = "❐";
+            }
+        }
+
+        private void CloseWindow_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        // ====================== RTSP 하드 재시작 로직 ======================
+
+        /// <summary>
+        /// RTSP 하드 재시작 쿨다운 체크 (과도한 재시작 방지)
+        /// </summary>
+        private bool CanHardRestartRtsp(string key, int cooldownMs = 5000)
+        {
+            lock (_rtspHealthLock)
+            {
+                if (_lastRtspHardRestartUtc.TryGetValue(key, out var last))
+                {
+                    if ((DateTime.UtcNow - last).TotalMilliseconds < cooldownMs)
+                        return false;
+                }
+
+                _lastRtspHardRestartUtc[key] = DateTime.UtcNow;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// RTSP 프리즈 감지 시 호출 - StreamState를 즉시 FROZEN으로 갱신
+        /// </summary>
+        private void OnRtspFrozen(Device device)
+        {
+            var app = System.Windows.Application.Current;
+            if (app is null) return;
+            app.Dispatcher.InvokeAsync(() =>
+            {
+                if (device.StreamState != "FROZEN")
+                {
+                    device.StreamState = "FROZEN";
+                    Debug.WriteLine($"[RtspFrozen] {device.Name} StreamState → FROZEN");
+                }
+            });
+        }
+
+        /// <summary>
+        /// RTSP 타일을 완전히 재생성하여 죽은 MediaPlayer 연결 복구
+        /// (공유 재시작 시 URL은 같지만 세션이 끊긴 경우)
+        /// </summary>
+        private void HardRestartRtspTile(Device device, string reason)
+        {
+            // 동기 버전: 백그라운드 작업 시작 후 반환
+            _ = HardRestartRtspTileAsync(device, reason);
+        }
+
+        /// <summary>
+        /// RTSP 타일을 완전히 재생성하여 죽은 MediaPlayer 연결 복구 (비동기 버전)
+        /// (공유 재시작 시 URL은 같지만 세션이 끊긴 경우)
+        /// </summary>
+        private async Task HardRestartRtspTileAsync(Device device, string reason)
+        {
+            if (device == null) return;
+            if (string.IsNullOrWhiteSpace(device.RtspUrl)) return;
+
+            string host = !string.IsNullOrWhiteSpace(device.AgentHost)
+                ? device.AgentHost
+                : GetHostOnly(device.Ip);
+
+            if (string.IsNullOrWhiteSpace(host)) return;
+
+            // 동시 HardRestart 차단
+            lock (_rtspHealthLock)
+            {
+                if (_rtspRestartInProgress.Contains(host))
+                {
+                    Debug.WriteLine($"[RTSP] HardRestart 무시: {device.Name} 이미 재시작 진행 중");
+                    return;
+                }
+                _rtspRestartInProgress.Add(host);
+            }
+
+            try
+            {
+                var oldAgent = device.Rtsp?.Agent;
+                var agent = oldAgent ?? new QuestAgentInfo();
+
+                agent.Host = host;
+                agent.Ip = host;
+                agent.StatusPort = device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080;
+                agent.RtspUrl = device.RtspUrl;
+                agent.RtspPort = 8554;
+                agent.Model = device.Name;
+                agent.StreamState = "streaming";
+                agent.Battery = device.BatteryLevel;
+
+                Debug.WriteLine($"[RTSP] HardRestart: {device.Name}, reason={reason}, url={device.RtspUrl}");
+
+                // Stop과 Dispose를 백그라운드 스레드에서 실행 (블로킹 방지)
+                var oldRtsp = device.Rtsp;
+                await Task.Run(() =>
+                {
+                    try { oldRtsp?.Stop(); } catch { }
+                    try { oldRtsp?.Dispose(); } catch { }
+                });
+
+                // UI 스레드에서 새 ViewModel 생성
+                RtspTileViewModel newRtsp = null;
+                int activeStreams = 0;
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    string stallKey = $"stall:{host}";
+                    lock (_rtspHealthLock)
+                    {
+                        _rtspHardRestartCounts.TryGetValue(stallKey, out int cnt);
+                        _rtspHardRestartCounts[stallKey] = ++cnt;
+                    }
+
+                    newRtsp = new RtspTileViewModel(
+                        _rtspLibVlc,
+                        agent,
+                        _rtspQualityManager);
+
+                    newRtsp.FrozenDetected += (s, _) => OnRtspFrozen(device);
+                    newRtsp.VideoAliveRestored += (s, _) =>
+                    {
+                        string k = $"stall:{host}";
+                        lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(k); }
+                        Debug.WriteLine($"[StallRecovery] {device.Name} 영상 신호 복구 → stall 카운트 리셋");
+                    };
+                    device.Rtsp = newRtsp;
+                    activeStreams = Math.Max(1, Devices.Count(d => d.Rtsp != null));
+                });
+
+                // Start를 백그라운드에서 실행 (VLC 작업이 블로킹될 수 있음)
+                await Task.Run(() =>
+                {
+                    try { newRtsp?.Start(activeStreams); }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[RTSP] Start failed: {ex.Message}");
+                    }
+                });
+            }
+            finally
+            {
+                lock (_rtspHealthLock) { _rtspRestartInProgress.Remove(host); }
+            }
+        }
+
+        /// <summary>
+        /// Agent RUNNING 상태인데 WPF RTSP 플레이어가 첫 프레임/영상 신호를 못 받은 경우 자동 복구
+        /// </summary>
+        private async Task CheckRtspClientStallAsync(Device device)
+        {
+            if (device?.Rtsp == null) return;
+            if (string.IsNullOrWhiteSpace(device.RtspUrl)) return;
+
+            bool streamRunning =
+                string.Equals(device.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(device.StreamState, "STARTING", StringComparison.OrdinalIgnoreCase);
+            if (!streamRunning) return;
+
+            if (!device.Rtsp.IsProbablyStalled()) return;
+
+            string key = $"stall:{device.AgentHost}";
+
+            // 호스트별 재시작 횟수 확인: 3회 이상이면 중단 (무한 루프 방지)
+            int restartCount;
+            lock (_rtspHealthLock)
+            {
+                _rtspHardRestartCounts.TryGetValue(key, out restartCount);
+            }
+            if (restartCount >= 3)
+            {
+                Debug.WriteLine($"[StallRecovery] {device.Name} 최대 재시도 횟수 도달. 자동 복구 중단.");
+                return;
+            }
+
+            if (!CanHardRestartRtsp(key, cooldownMs: 8000)) return;
+
+            Debug.WriteLine($"[StallRecovery] {device.Name} → Agent RUNNING, RTSP open, but player stalled. HardRestart #{restartCount + 1}.");
+
+            // VirtualDisplay 리셋을 Agent에 먼저 요청 (SPS/PPS 재생성 유도)
+            _ = AgentApi.RestartCaptureAsync(device.AgentHost, device.AgentStatusPort);
+            await Task.Delay(500); // 재시작 전 에이전트 완료 대기
+
+            await Dispatcher.InvokeAsync(() =>
+                HardRestartRtspTile(device, "client stall: no video signal"));
+        }
+
+        /// <summary>
+        /// Agent streamState 복구 감지 시 RTSP 타일 자동 하드 재시작
+        /// RTSP 포트에 직접 TCP 접속하지 않고 Agent 상태값만 사용합니다.
+        /// </summary>
+        private async Task CheckRtspRecoveryAsync(
+            string ip,
+            string rtspUrl,
+            string streamState)
+        {
+            if (string.IsNullOrWhiteSpace(rtspUrl))
+                return;
+
+            if (!TryGetRtspEndpoint(rtspUrl, out var rtspHost, out var rtspPort))
+                return;
+
+            string key = $"{rtspHost}:{rtspPort}";
+
+            bool isStreamingOrStarting =
+                string.Equals(streamState, "RUNNING", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(streamState, "STARTING", StringComparison.OrdinalIgnoreCase);
+
+            // RTSP 포트에 직접 TCP 연결하지 않습니다.
+            // Agent가 RUNNING/STARTING이 아니면 down으로 기록만 합니다.
+            if (!isStreamingOrStarting)
+            {
+                lock (_rtspHealthLock)
+                {
+                    _rtspWasDown.Add(key);
+                }
+
+                return;
+            }
+
+            bool shouldRestart = false;
+
+            lock (_rtspHealthLock)
+            {
+                if (_rtspWasDown.Contains(key))
+                {
+                    _rtspWasDown.Remove(key);
+                    shouldRestart = true;
+                }
+            }
+
+            if (!shouldRestart)
+                return;
+
+            if (!CanHardRestartRtsp(key, cooldownMs: 12000))
+                return;
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                var device = Devices.FirstOrDefault(d =>
+                    string.Equals(d.Ip, ip, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.AgentHost, rtspHost, StringComparison.OrdinalIgnoreCase));
+
+                if (device != null)
+                {
+                    HardRestartRtspTile(device, "RTSP recovered by Agent streamState");
+                }
+            });
+        }
+
+
+        public async Task<List<(string ip, int port)>> ScanPortsAsync(
+            List<string> ips, int portStart, int portEnd, IProgress<int> progress = null, CancellationToken token = default)
+        {
+            var openPorts = new ConcurrentBag<(string, int)>();
+            int maxParallel = 400;
+            var throttler = new SemaphoreSlim(maxParallel);
+            var tasks = new List<Task>();
+            int completed = 0, totalPort = ips.Count * (portEnd - portStart + 1);
+            int reportInterval = Math.Max(totalPort / 100, 1);
+
+            try
+            {
+                // 가능성 높은 5555 선탐색
+                foreach (var ip in ips)
+                {
+                    if (token.IsCancellationRequested) break;
+                    await throttler.WaitAsync(token);
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            if (await TryConnectPort(ip, 5555, token))
+                                openPorts.Add((ip, 5555));
+                        }
+                        catch { }
+                        finally
+                        {
+                            int done = Interlocked.Increment(ref completed);
+                            if (done % reportInterval == 0 || done == totalPort)
+                                progress?.Report(done);
+                            throttler.Release();
+                        }
+                    }, token));
+                }
+
+                // 범위 스캔
+                foreach (var ip in ips)
+                {
+                    for (int port = portStart; port <= portEnd; port++)
+                    {
+                        if (port == 5555) continue;
+                        if (token.IsCancellationRequested) break;
+                        await throttler.WaitAsync(token);
+                        var t = ScanPortAsync(ip, port, openPorts, throttler, () =>
+                        {
+                            int done = Interlocked.Increment(ref completed);
+                            if (done % reportInterval == 0 || done == totalPort)
+                                progress?.Report(done);
+                        }, token);
+                        tasks.Add(t);
+                    }
+                }
+                await Task.WhenAll(tasks);
+            }
+            catch (OperationCanceledException) { }
+            return openPorts.ToList();
+        }
+
+        private async Task ScanPortAsync(string ip, int port, ConcurrentBag<(string, int)> openPorts, SemaphoreSlim throttler, Action onComplete, CancellationToken token)
+        {
+            try
+            {
+                if (token.IsCancellationRequested) return;
+                if (await TryConnectPort(ip, port, token))
+                    openPorts.Add((ip, port));
+            }
+            catch { }
+            finally
+            {
+                onComplete?.Invoke();
+                throttler.Release();
+            }
+        }
+
+        private static async Task<bool> TryConnectPort(string ip, int port, CancellationToken token)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                var connectTask = client.ConnectAsync(ip, port);
+                var timeoutTask = Task.Delay(200, token); // 150→200ms: 포트 탄지 실패륙 감소
+                var completedTask = await Task.WhenAny(connectTask, timeoutTask);
+                return completedTask == connectTask && client.Connected;
+            }
+            catch { return false; }
+        }
+
+        private bool TryGetPkgIndex(object sender, out int index)
+        {
+            index = -1;
+            var button = sender as Button;
+            if (button == null || !int.TryParse(button.Tag as string, out index) || index < 0 || index >= _pkgNames.Length)
+            {
+                ShowMsg("패키지명이 올바르지 않습니다.");
+                return false;
+            }
+            return true;
+        }
+
+        private void ShowMsg(string msg)
+        {
+            if (_isShuttingDown) return; // 종료 중에는 표시하지 않음
+
+            void ShowInternal()
+            {
+                try
+                {
+                    if (this.IsLoaded && this.IsVisible)
+                        MessageBox.Show(this, msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                    else
+                        MessageBox.Show(msg, "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"MessageBox 표시 중 오류: {ex.Message}");
+                }
+            }
+
+            if (Dispatcher.CheckAccess()) ShowInternal();
+            else Dispatcher.BeginInvoke((Action)ShowInternal);
+        }
+
+        private void RemoveDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                return;
+            }
+
+            try
+            {
+                if ((sender as Button)?.DataContext is Device device)
+                {
+                    var target = Devices.FirstOrDefault(d => d.Ip == device.Ip);
+                    if (target != null)
+                    {
+                        Devices.Remove(target);
+                        ShowMsg($"{device.Name} 기기가 목록에서 삭제되었습니다.");
+                    }
+                    else
+                    {
+                        ShowMsg("기기를 찾을 수 없습니다.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowMsg("기기 삭제 중 오류가 발생했습니다: " + ex.Message);
+            }
+        }
+
+        private void AddDeviceButton_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                return;
+            }
+
+            AddDeviceWindow addDeviceWindow = new AddDeviceWindow(this);
+            addDeviceWindow.Owner = this;
+            addDeviceWindow.ShowInTaskbar = true;
+            addDeviceWindow.Show();
+        }
+
+        public async void AddDevice(string name, string ip)
+        {
+            this.IsEnabled = false;
+            if (_scanCancelSource != null && !_scanCancelSource.IsCancellationRequested)
+            {
+                ShowMsg("다른 작업을 진행중입니다.");
+                this.IsEnabled = true;
+                return;
+            }
+
+            // 사용자가 IP가 아닌 시리얼/텍스트를 입력한 경우 추가하지 않음
+            if (!IsValidIpEndpoint(ip))
+            {
+                ShowMsg("IP 형식이 올바르지 않습니다. 예) 192.168.0.10:5555");
+                this.IsEnabled = true;
+                return;
+            }
+
+            if (Devices.Any(d => d.Ip.Split(':')[0] == ip))
+            {
+                ShowMsg($"{ip} 기기는 이미 연결되어 있습니다.");
+                this.IsEnabled = true;
+                return;
+            }
+
+            int portStart = 30000, portEnd = 49999;
+            int totalPort = portEnd - portStart + 1;
+            var progress = new ProgressWindow(this);
+            progress.Owner = this;
+            progress.ShowInTaskbar = true;
+            progress.Show();
+
+            try
+            {
+                var openPorts = await ScanPortsAsync(
+                    new List<string> { ip }, portStart, portEnd,
+                    new Progress<int>((done) => progress.SetProgress(done, totalPort)));
+
+                // HTTP Agent only - manual ADB connection removed
+                bool connected = false;
+                foreach (var (openIp, port) in openPorts)
+                {
+                    string addr = $"{openIp}:{port}";
+                    // Check if Agent is available
+                    var status = await AgentApi.GetStatusAsync(openIp, port);
+                    if (status != null && !string.IsNullOrEmpty(status.Serial))
+                    {
+                        connected = true;
+                        AddDevice(new Device { Serial = status.Serial, Ip = addr, Status = "Connected", AgentHost = openIp, AgentStatusPort = port });
+                        ShowMsg($"{name} 기기가 성공적으로 연결되었습니다.\nIP: {addr}");
+                        break;
+                    }
+                }
+
+                if (!connected) ShowMsg($"{name} 기기 연결 실패: 열려있는 포트가 없거나 연결에 실패했습니다.");
+            }
+            catch (Exception ex)
+            {
+                ShowMsg("기기 추가 중 오류가 발생했습니다: " + ex.Message);
+            }
+            finally
+            {
+                progress.Close();
+                this.IsEnabled = true;
+            }
+        }
+
+        private void AddDevice(Device device)
+        {
+            if (device == null || string.IsNullOrEmpty(device.Ip)) { ShowMsg("유효하지 않은 기기 정보입니다."); return; }
+
+            // 같은 시리얼이 이미 컬렉션에 있으면 추가하지 않음 (UnknownSerial 제외)
+            if (!string.IsNullOrWhiteSpace(device.Serial) &&
+                !string.Equals(device.Serial, "UnknownSerial", StringComparison.OrdinalIgnoreCase) &&
+                Devices.Any(d => string.Equals(d.Serial, device.Serial, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            // IP 대상인 경우에만: USB(비-IP)로 이미 연결된 Quest면 중복 추가 방지
+            if (Devices.Any(d => d.Ip == device.Ip)) { ShowMsg($"{device.Name} 기기는 이미 목록에 있습니다."); return; }
+            if (device.Status != "Connected") { ShowMsg($"{device.Name} 기기가 연결되어 있지 않습니다."); return; }
+
+            device.BatteryLevel = 0; // Will be updated by status polling
+            device.Name = _serialNameDic.TryGetValue(device.Serial, out string name) ? name : device.Serial;
+
+            Devices.Add(device);
+            AddDeviceEvent?.Invoke(device);
+        }
+
+        // ====================== 자동 미러링 (ItemsControl 타일 안) ======================
+        private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems != null)
+            {
+                foreach (Device d in e.NewItems)
+                {
+                    HookDevice(d);
+                    lock (_missLock) _missCounts[d.Ip] = 0;
+                }
+            }
+            if (e.OldItems != null)
+            {
+                foreach (Device d in e.OldItems)
+                {
+                    UnhookDevice(d);
+                    lock (_missLock) _missCounts.Remove(d.Ip);
+                }
+            }
+        }
+
+        private void HookDevice(Device d) { }
+
+        private void UnhookDevice(Device d) { }
+
+        private void Window_SourceInitialized(object sender, EventArgs e)
+        {
+            // 초기화 완료, Loaded에서 최대화 처리
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            // Window가 완전히 로드된 후 최대화 (작업 영역에 맞게)
+            MaximizeToWorkArea();
+        }
+
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            // 최대화 시 작업 영역에 맞게 조정
+            if (WindowState == WindowState.Maximized)
+            {
+                MaximizeToWorkArea();
+            }
+
+            // 최대화/복원 버튼 텍스트 업데이트
+            if (MaximizeRestoreButton != null)
+            {
+                MaximizeRestoreButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+            }
+        }
+
+        private void MaximizeToWorkArea()
+        {
+            // 작업 영역 가져오기
+            var workArea = SystemParameters.WorkArea;
+
+            // WindowState를 Normal로 설정하고 작업 영역에 맞게 크기와 위치 조정
+            this.WindowState = WindowState.Normal;
+            this.Left = workArea.Left;
+            this.Top = workArea.Top;
+            this.Width = workArea.Width;
+            this.Height = workArea.Height;
+        }
+
+        // ========== 안정화된 FindInItemTemplate ==========
+
+        public T FindInItemTemplate<T>(ItemsControl itemsControl, object item, string elementName)
+            where T : FrameworkElement
+        {
+            var container = itemsControl.ItemContainerGenerator.ContainerFromItem(item) as FrameworkElement;
+            if (container == null)
+            {
+                // UpdateLayout은 전체 레이아웃 트리를 강제 재계산하므로 꼭 필요할 때만 호출
+                if (itemsControl.ItemContainerGenerator.Status == System.Windows.Controls.Primitives.GeneratorStatus.ContainersGenerated)
+                    itemsControl.UpdateLayout();
+                container = itemsControl.ItemContainerGenerator.ContainerFromItem(item) as FrameworkElement;
+                if (container == null) return null;
+            }
+
+            container.ApplyTemplate();
+
+            if (container is ContentPresenter cp)
+            {
+                var tpl = cp.ContentTemplate ?? itemsControl.ItemTemplate;
+                if (tpl != null)
+                {
+                    try
+                    {
+                        var el = tpl.FindName(elementName, cp) as T;
+                        if (el != null) return el;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 템플릿 미적용 예외 → fallback
+                    }
+                }
+            }
+
+            return FindVisualChildByName<T>(container, elementName);
+        }
+
+        private static T FindVisualChildByName<T>(DependencyObject parent, string name)
+            where T : FrameworkElement
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T fe && fe.Name == name)
+                    return fe;
+
+                var result = FindVisualChildByName<T>(child, name);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        // =============== 타일 내부 수동 버튼 ===============
+        private async void RefreshTile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                MessageBox.Show("이미 새로고침 중입니다.");
+                return;
+            }
+            _isRefreshing = true;
+            if ((sender as Button)?.CommandParameter is not Device device) { _isRefreshing = false; return; }
+
+            // 이미 HardRestart 진행 중이면 무시
+            string host = !string.IsNullOrWhiteSpace(device.AgentHost)
+                ? device.AgentHost : GetHostOnly(device.Ip);
+            lock (_rtspHealthLock)
+            {
+                if (_rtspRestartInProgress.Contains(host))
+                {
+                    _isRefreshing = false;
+                    return;
+                }
+            }
+
+            // RTSP 타일 하드 재시작
+            if (device.Rtsp != null)
+            {
+                try
+                {
+                    // Wake 명령 전송
+                    if (!string.IsNullOrWhiteSpace(device.AgentHost))
+                    {
+                        await AgentApi.WakeScreenAsync(
+                            device.AgentHost,
+                            device.AgentStatusPort,
+                            keepAwake: true);
+                    }
+
+                    await Task.Delay(500);
+
+                    // RTSP 타일 완전히 재생성 - 백그라운드에서 실행
+                    await HardRestartRtspTileAsync(device, "manual refresh button");
+                }
+                finally
+                {
+                    _isRefreshing = false;
+                }
+            }
+            else
+            {
+                _isRefreshing = false;
+            }
+        }
+
+        private void StopTile_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as Button)?.CommandParameter is not Device device)
+                return;
+
+            try
+            {
+                device.Rtsp?.Stop();
+            }
+            catch { }
+        }
+
+        //====================== 디바이스 윈도우 영역 ======================
+
+        private DeviceWindow _deviceWindow;
+        private void OpenDeviceWindow(Device device)
+        {
+            if (device == null) return;
+
+            // 1) 기존 창이 있으면 닫기
+            if (_deviceWindow != null)
+            {
+                try { _deviceWindow.Closed -= DeviceWindow_Closed; } catch { }
+                try { _deviceWindow.Close(); } catch { }
+                _deviceWindow = null;
+            }
+
+            // 2) 새 창 열기 - LibVLC 인스턴스 전달하여 RTSP/HTTP 미러링 사용
+            var win = new DeviceWindow(this, device, _rtspLibVlc) { Owner = this };
+            _deviceWindow = win;
+            win.Closed += DeviceWindow_Closed;
+            win.Show();
+        }
+
+        private void DeviceWindow_Closed(object? sender, EventArgs e)
+        {
+            // 빠르게 연달아 열었을 때 새 인스턴스를 건드리지 않게 보호
+            if (ReferenceEquals(sender, _deviceWindow))
+                _deviceWindow = null;
+        }
+
+        // 오버레이 버튼 클릭(항상 동작)
+        private void OpenDeviceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is Device device)
+                OpenDeviceWindow(device);
+        }
+
+        //====================== 상단 영역 ======================
+        // 패널 전환
+        private static readonly SolidColorBrush _sideActive = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F5A623"));
+        private static readonly SolidColorBrush _sideNormal = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#555555"));
+
+        private void SetSideButtonActive(Button active)
+        {
+            // 모든 버튼 인라인 템플릿 → Background 직접 변경
+            BtnMetaDevice.Background   = ReferenceEquals(active, BtnMetaDevice)   ? _sideActive : _sideNormal;
+            BtnXrExperience.Background = ReferenceEquals(active, BtnXrExperience) ? _sideActive : _sideNormal;
+            BtnXrCoding.Background     = ReferenceEquals(active, BtnXrCoding)     ? _sideActive : _sideNormal;
+            BtnXrEnglish.Background    = ReferenceEquals(active, BtnXrEnglish)    ? _sideActive : _sideNormal;
+        }
+
+        private void BtnMetaDevice_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+        }
+
+        private void BtnXrExperience_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Visible;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnXrExperience);
+        }
+
+        private void BtnXrCoding_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Visible;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnXrCoding);
+        }
+
+        private void BtnXrEnglish_Click(object sender, RoutedEventArgs e)
+        {
+            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Visible;
+            SetSideButtonActive(BtnXrEnglish);
+        }
+
+        // ====================== 영어 앱 전용 버튼 ======================
+        // 아이콘(Tag=0~9) 클릭 → --ei stage {Tag} 전달
+        // Unity 수신: getIntExtra("stage", 0)
+        private async void EnglishAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+            if (sender is not Button btn) return;
+            if (!int.TryParse(btn.Tag as string, out int stage) || stage < 0 || stage > 9) return;
+
+            var targetDevices = Devices
+                .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                .ToList();
+
+            if (targetDevices.Count == 0)
+            {
+                ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
+                return;
+            }
+
+            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility     = Visibility.Collapsed;
+            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+
+            string[] candidates = _pkgNames[13];
+
+            var extras = new Dictionary<string, object>
+            {
+                ["stage"] = stage
+            };
+
+            var failed = new ConcurrentBag<string>();
+
+            var tasks = targetDevices.Select(async device =>
+            {
+                bool launched = await LaunchCandidatesByAgentAsync(
+                    device,
+                    candidates,
+                    extras,
+                    forceRestart: true);
+
+                if (!launched)
+                    failed.Add($"{device.Name} (stage={stage})");
+            });
+
+            await Task.WhenAll(tasks);
+
+            if (failed.Count > 0)
+                ShowMsg($"일부 기기 영어 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
+            else
+                ShowMsg($"전체 기기 영어 앱 실행 성공 (Stage {stage + 1})");
+        }
+
+        private void OpenSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var settingsWin = new SettingWindow(SettingsService.Instance, Devices);
+            settingsWin.Owner = this;
+            settingsWin.ShowDialog();
+        }
+
+        // ====================== 공간 설정 초기화 ======================
+        // Meta Quest OS v62+ 기준 실제 동작하는 방법 순서대로 시도:
+        //
+        // [방법 A] Guardian 데이터 파일 직접 삭제 (루트 불필요, ADB shell 권한으로 가능)
+        //   - /data/data/com.oculus.guardian  (앱 데이터)
+        //   - /sdcard/Android/data/com.oculus.guardian  (외부 저장소)
+        //   삭제 후 com.oculus.guardian 프로세스를 kill → 재시작 시 빈 guardian으로 초기화됨
+        //
+        // [방법 B] Guardian 앱 데이터 클리어 (pm clear)
+        //   adb shell pm clear com.oculus.guardian
+        //   → 앱 데이터/캐시 전체 삭제, 공간 경계 초기화됨
+        //
+        // [방법 C] 시스템 재부팅
+        //   adb shell reboot
+        //   → 가장 확실, 단 재연결 필요
+        //
+        // 버튼 클릭 시 A → B 순서로 시도, 실패 시 C(재부팅) 여부를 사용자에게 묻는다
+        private async void ResetGuardianBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            var connected = Devices.Where(d => d.Status == "Connected").ToList();
+            if (connected.Count == 0) { ShowMsg("연결된 기기가 없습니다."); return; }
+
+            const string resetAppPkg      = "com.StoryWing.ResetRoomDataApp";
+            const string resetAppActivity = "com.unity3d.player.UnityPlayerActivity";
+
+            var appResults = new ConcurrentBag<(string name, bool launched)>();
+
+            // Use HTTP Agent launch instead
+            var tasks = connected.Select(async device =>
+            {
+                try
+                {
+                    await AgentApi.LaunchAppAsync(device.AgentHost, device.AgentStatusPort, resetAppPkg, resetAppActivity);
+                    appResults.Add((device.Name, true));
+                }
+                catch
+                {
+                    appResults.Add((device.Name, false));
+                }
+            }).ToList();
+            await Task.WhenAll(tasks);
+
+            int successCount = appResults.Count(r => r.launched);
+            int failCount    = appResults.Count(r => !r.launched);
+
+            string summary = string.Join("\n", appResults
+                .OrderBy(r => r.name)
+                .Select(r => $"  {(r.launched ? "✅" : "❌")} {r.name}"));
+
+            ShowMsg($"=== ResetRoomDataApp 실행 결과 ===\n\n{summary}\n\n" +
+                    $"성공: {successCount}개  /  실패: {failCount}개");
+        }
+
+    }
+
+    public sealed class BoolToVisibilityConverter : System.Windows.Data.IValueConverter
+    {
+        public static readonly BoolToVisibilityConverter Instance = new();
+        public object Convert(object value, Type t, object p, System.Globalization.CultureInfo c)
+            => value is true ? Visibility.Visible : Visibility.Collapsed;
+        public object ConvertBack(object value, Type t, object p, System.Globalization.CultureInfo c)
+            => throw new NotImplementedException();
+    }
+
+    // ====================== Quest Agent Info ======================
+    public sealed class QuestAgentInfo
+    {
+        public string Host { get; set; }
+        public int StatusPort { get; set; }
+
+        public string DeviceId { get; set; }
+        public string Model { get; set; }
+        public string Ip { get; set; }
+        public string DeviceName { get; set; }  // Quest Agent가 설정한 고유 식별 이름
+
+        public int RtspPort { get; set; }
+        public string RtspUrl { get; set; }
+
+        public int Battery { get; set; }
+        public string StreamState { get; set; }
+        public string AgentVersion { get; set; }
+
+        // 추가 디바이스 정보
+        public bool IsCharging { get; set; }
+        public string ChargingStatus { get; set; }  // "Charging", "Not charging", "Full", etc.
+        public int? Temperature { get; set; }       // 배터리 온도 (0.1도 단위)
+        public string Serial { get; set; }          // 시리얼 넘버
+        public string AndroidVersion { get; set; }  // Android 버전
+        public string BuildNumber { get; set; }     // 빌드 넘버
+
+        public string DiscoverySource { get; set; }
+
+        // 프레임 상태 (Agent가 제공 시)
+        public long StreamGeneration { get; set; }
+        public long EncodedFrameCount { get; set; }
+        public long LastFrameAtMs { get; set; }
+        public int RtspClientCount { get; set; }
+
+        public override string ToString()
+        {
+            return
+                $"[{DiscoverySource}]\n" +
+                $"Model: {Model}\n" +
+                $"Host: {Host}:{StatusPort}\n" +
+                $"IP: {Ip}\n" +
+                $"Battery: {Battery}%{(IsCharging ? " (충전중)" : "")}\n" +
+                $"Stream: {StreamState}\n" +
+                $"RTSP: {RtspUrl}\n" +
+                $"Version: {AgentVersion}\n" +
+                $"Serial: {Serial}";
+        }
+    }
+
+    // ====================== Agent mDNS Discovery ======================
+    public static class AgentMdnsDiscovery
+    {
+        private const string Service = "_multiquest-agent._tcp.local.";
+        private const int FixedStatusPort = 18080;
+
+        public static async Task<List<QuestAgentInfo>> DiscoverAsync(
+            int mdnsTimeoutMs = 3000,
+            int directScanTimeoutMs = 2500,
+            CancellationToken cancellationToken = default)
+        {
+            var found = new Dictionary<string, QuestAgentInfo>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. mDNS 검색
+            var mdnsAgents = await DiscoverByMdnsAsync(mdnsTimeoutMs, cancellationToken);
+            foreach (var agent in mdnsAgents)
+            {
+                AddUnique(found, agent);
+            }
+
+            // 2. 18080 직접 스캔 fallback
+            // mDNS가 성공했더라도 추가 Agent가 mDNS에 안 잡힐 수 있으므로 fallback도 같이 실행
+            var directAgents = await DiscoverByDirectScanAsync(directScanTimeoutMs, cancellationToken);
+            foreach (var agent in directAgents)
+            {
+                AddUnique(found, agent);
+            }
+
+            return found.Values
+                .OrderBy(x => x.Model)
+                .ThenBy(x => x.Host)
+                .ToList();
+        }
+
+        private static async Task<List<QuestAgentInfo>> DiscoverByMdnsAsync(
+            int timeoutMs,
+            CancellationToken cancellationToken)
+        {
+            var list = new List<QuestAgentInfo>();
+
+            IReadOnlyList<IZeroconfHost> responses;
+
+            try
+            {
+                responses = await ZeroconfResolver.ResolveAsync(
+                    Service,
+                    scanTime: TimeSpan.FromMilliseconds(timeoutMs));
+            }
+            catch
+            {
+                return list;
+            }
+
+            using var http = new HttpClient
+            {
+                Timeout = TimeSpan.FromMilliseconds(1500)
+            };
+
+            foreach (var resp in responses)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+
+                var rec = resp.Services.Values.FirstOrDefault(x => x.Port > 0);
+                if (rec == null)
+                    continue;
+
+                var host = resp.IPAddresses?.FirstOrDefault(ip =>
+                    IPAddress.TryParse(ip, out var parsed) &&
+                    parsed.AddressFamily == AddressFamily.InterNetwork);
+
+                if (string.IsNullOrWhiteSpace(host))
+                    continue;
+
+                var agent = await ProbeAgentAsync(
+                    http,
+                    host,
+                    rec.Port,
+                    "mDNS",
+                    cancellationToken);
+
+                if (agent != null)
+                    list.Add(agent);
+            }
+
+            return list;
+        }
+
+        private static async Task<List<QuestAgentInfo>> DiscoverByDirectScanAsync(
+            int timeoutMs,
+            CancellationToken cancellationToken)
+        {
+            var results = new ConcurrentBag<QuestAgentInfo>();
+            var targets = GetCandidateIps();
+
+            if (targets.Count == 0)
+                return new List<QuestAgentInfo>();
+
+            using var http = new HttpClient
+            {
+                Timeout = TimeSpan.FromMilliseconds(Math.Max(500, timeoutMs))
+            };
+
+            using var throttler = new SemaphoreSlim(64);
+
+            var tasks = targets.Select(async ip =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                await throttler.WaitAsync();
+
+                try
+                {
+                    var agent = await ProbeAgentAsync(
+                        http,
+                        ip,
+                        FixedStatusPort,
+                        "DirectScan:18080",
+                        cancellationToken);
+
+                    if (agent != null)
+                        results.Add(agent);
+                }
+                catch
+                {
+                    // 개별 IP 실패는 무시
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            }).ToList();
+
+            try
+            {
+                await Task.WhenAll(tasks);
+            }
+            catch
+            {
+                // 전체 스캔 중 일부 실패는 무시
+            }
+
+            return results.ToList();
+        }
+
+        private static async Task<QuestAgentInfo> ProbeAgentAsync(
+            HttpClient http,
+            string host,
+            int port,
+            string source,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return null;
+
+                string url = $"http://{host}:{port}/status";
+                string json = await http.GetStringAsync(url);
+
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(
+                    json,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                if (info == null)
+                    return null;
+
+                // Agent status JSON이 아닌 다른 HTTP 서버가 잡힌 경우 방지
+                bool looksLikeAgent =
+                    !string.IsNullOrWhiteSpace(info.DeviceId) ||
+                    !string.IsNullOrWhiteSpace(info.RtspUrl) ||
+                    !string.IsNullOrWhiteSpace(info.AgentVersion);
+
+                if (!looksLikeAgent)
+                    return null;
+
+                info.Host = host;
+                info.StatusPort = port;
+                info.DiscoverySource = source;
+
+                if (string.IsNullOrWhiteSpace(info.Ip) || info.Ip == "0.0.0.0")
+                    info.Ip = host;
+
+                return info;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void AddUnique(
+            Dictionary<string, QuestAgentInfo> found,
+            QuestAgentInfo agent)
+        {
+            if (agent == null)
+                return;
+
+            string key = !string.IsNullOrWhiteSpace(agent.DeviceId)
+                ? agent.DeviceId
+                : $"{agent.Host}:{agent.StatusPort}";
+
+            // mDNS와 DirectScan이 둘 다 잡히면 mDNS 우선
+            if (found.TryGetValue(key, out var existing))
+            {
+                if (existing.DiscoverySource?.StartsWith("DirectScan", StringComparison.OrdinalIgnoreCase) == true &&
+                    agent.DiscoverySource?.Equals("mDNS", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    found[key] = agent;
+                }
+
+                return;
+            }
+
+            found[key] = agent;
+        }
+
+        private static List<string> GetCandidateIps()
+        {
+            var ips = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var localIp in GetLocalPrivateIPv4Addresses())
+            {
+                var parts = localIp.Split('.');
+                if (parts.Length != 4)
+                    continue;
+
+                string prefix = $"{parts[0]}.{parts[1]}.{parts[2]}.";
+
+                for (int i = 2; i <= 254; i++)
+                {
+                    string candidate = prefix + i;
+
+                    if (!candidate.Equals(localIp, StringComparison.OrdinalIgnoreCase))
+                        ips.Add(candidate);
+                }
+            }
+
+            return ips.ToList();
+        }
+
+        private static List<string> GetLocalPrivateIPv4Addresses()
+        {
+            var result = new List<string>();
+
+            try
+            {
+                foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up)
+                        continue;
+
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                        continue;
+
+                    var props = ni.GetIPProperties();
+
+                    // 게이트웨이가 없는 가상 어댑터/VPN은 우선 제외
+                    bool hasGateway = props.GatewayAddresses.Any(g =>
+                        g.Address.AddressFamily == AddressFamily.InterNetwork &&
+                        !IPAddress.IsLoopback(g.Address));
+
+                    if (!hasGateway)
+                        continue;
+
+                    foreach (var ua in props.UnicastAddresses)
+                    {
+                        if (ua.Address.AddressFamily != AddressFamily.InterNetwork)
+                            continue;
+
+                        if (!IsPrivateIPv4(ua.Address))
+                            continue;
+
+                        result.Add(ua.Address.ToString());
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static bool IsPrivateIPv4(IPAddress ip)
+        {
+            var b = ip.GetAddressBytes();
+
+            // 10.0.0.0/8
+            if (b[0] == 10)
+                return true;
+
+            // 172.16.0.0/12
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+                return true;
+
+            // 192.168.0.0/16
+            if (b[0] == 192 && b[1] == 168)
+                return true;
+
+            return false;
+        }
+    }
+
+    // ====================== Device ======================
+    public class Device : INotifyPropertyChanged
+    {
+        private string _name;
+        private string _serial;
+        private string _ip;
+        private string _status;
+        private int _batteryLevel = -1;
+        private bool _systemUIActive;
+        private RtspTileViewModel _rtsp;
+        private string _agentHost;
+        private int _agentStatusPort;
+        private string _rtspUrl;
+        private bool _isCharging;
+        private string _chargingStatus;
+        private string _streamState;
+
+        // Agent encodedFrameCount 정체 감지용
+        internal long LastKnownEncodedFrameCount = -1;
+        internal DateTime EncodedFrameCountSameAtUtc = DateTime.MinValue;
+
+        /// <summary>Agent가 보내는 고유 기기 ID (deviceId). IP가 중복되는 환경에서 실쭴 식별용.</summary>
+        public string AgentDeviceId { get; set; }
+
+        public string Name
+        {
+            get => _name;
+            set { if (_name != value) { _name = value; OnPropertyChanged(); } }
+        }
+
+        public string Serial
+        {
+            get => _serial;
+            set { if (_serial != value) { _serial = value; OnPropertyChanged(); } }
+        }
+
+        public string Ip
+        {
+            get => _ip;
+            set { if (_ip != value) { _ip = value; OnPropertyChanged(); } }
+        }
+
+        public string Status
+        {
+            get => _status;
+            set { if (_status != value) { _status = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsConnected)); OnPropertyChanged(nameof(IsAgentOnly)); } }
+        }
+
+        public int BatteryLevel
+        {
+            get => _batteryLevel;
+            set { if (_batteryLevel != value) { _batteryLevel = value; OnPropertyChanged(); OnPropertyChanged(nameof(BatteryText)); } }
+        }
+
+        public bool IsCharging
+        {
+            get => _isCharging;
+            set { if (_isCharging != value) { _isCharging = value; OnPropertyChanged(); OnPropertyChanged(nameof(BatteryText)); } }
+        }
+
+        public string ChargingStatus
+        {
+            get => _chargingStatus;
+            set { if (_chargingStatus != value) { _chargingStatus = value; OnPropertyChanged(); } }
+        }
+
+        private string _mirrorError;
+        public string MirrorError
+        {
+            get => _mirrorError;
+            set { if (_mirrorError != value) { _mirrorError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasMirrorError)); } }
+        }
+        public bool HasMirrorError => !string.IsNullOrEmpty(_mirrorError);
+
+        /// <summary>
+        /// Quest에서 Boundary/설정/시스템 UI가 활성화되어 있는지 여부.
+        /// true일 때는 scrcpy 검은 화면이 정상이므로 재시작하지 않는다.
+        /// </summary>
+        public bool SystemUIActive
+        {
+            get => _systemUIActive;
+            set { if (_systemUIActive != value) { _systemUIActive = value; OnPropertyChanged(); OnPropertyChanged(nameof(SystemUIMessage)); } }
+        }
+
+        public string SystemUIMessage => SystemUIActive 
+            ? "⚠️ 시스템 UI 표시 중\nQuest에서 Boundary/설정 화면을 확인해 주세요" 
+            : null;
+
+        public RtspTileViewModel Rtsp
+        {
+            get => _rtsp;
+            set
+            {
+                if (_rtsp != value)
+                {
+                    _rtsp = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HasRtsp));
+                }
+            }
+        }
+
+        public bool HasRtsp => Rtsp != null;
+
+        public string AgentHost
+        {
+            get => _agentHost;
+            set
+            {
+                if (_agentHost != value)
+                {
+                    _agentHost = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public int AgentStatusPort
+        {
+            get => _agentStatusPort;
+            set
+            {
+                if (_agentStatusPort != value)
+                {
+                    _agentStatusPort = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public string RtspUrl
+        {
+            get => _rtspUrl;
+            set
+            {
+                if (_rtspUrl != value)
+                {
+                    _rtspUrl = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public string StreamState
+        {
+            get => _streamState;
+            set
+            {
+                if (_streamState != value)
+                {
+                    _streamState = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(StreamStateText));
+                    OnPropertyChanged(nameof(StreamStateColor));
+                }
+            }
+        }
+
+        public string StreamStateText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(_streamState))
+                    return "○ 정지됨";
+
+                return _streamState?.ToUpperInvariant() switch
+                {
+                    "RUNNING"  => "● 송출 중",
+                    "STARTING" => "◐ 준비 중",
+                    "STOPPED"  => "○ 정지됨",
+                    "IDLE"     => "○ 대기 중",
+                    _          => "○ 정지됨"
+                };
+            }
+        }
+
+        public string StreamStateColor
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(_streamState))
+                    return "#FF5963"; // Red
+
+                return _streamState?.ToUpperInvariant() switch
+                {
+                    "RUNNING"  => "#3CE48C",  // Green
+                    "STARTING" => "#FFA500",  // Orange
+                    "STOPPED"  => "#FF5963",  // Red
+                    "IDLE"     => "#AAAAAA",  // Gray
+                    _          => "#FF5963"   // Red
+                };
+            }
+        }
+
+        public bool IsAgentOnly =>
+            string.Equals(Status, "AgentOnly", StringComparison.OrdinalIgnoreCase);
+
+        public bool IsConnected => 
+            string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(Status, "AgentOnly", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(AgentHost));
+
+        public string BatteryText
+        {
+            get
+            {
+                if (BatteryLevel < 0) return "N/A";
+                string text = $"{BatteryLevel}%";
+                if (IsCharging) text += " ⚡";
+                return text;
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string prop = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+
+        public override bool Equals(object obj) => obj is Device d && Ip == d.Ip;
+        public override int GetHashCode() => Ip != null ? Ip.GetHashCode() : 0;
+    }
+
+    internal static class TaskExtensions
+    {
+        public static async Task<T> WithCancellation<T>(this Task<T> task, CancellationToken token)
+        {
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (token.Register(static s => ((TaskCompletionSource<bool>)s!).TrySetResult(true), tcs))
+            {
+                if (task == await Task.WhenAny(task, tcs.Task).ConfigureAwait(false))
+                    return await task.ConfigureAwait(false);
+                throw new OperationCanceledException(token);
+            }
+        }
+    }
+
+}

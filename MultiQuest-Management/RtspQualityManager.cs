@@ -144,29 +144,29 @@ namespace MultiQuest_Management
                 QualityLevel.Ultra => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=250",
-                    ":live-caching=250",
+                    ":network-caching=1000",
+                    ":live-caching=1000",
                     ":clock-jitter=0",
-                    ":no-drop-late-frames",
-                    ":no-skip-frames"
+                    ":drop-late-frames",
+                    ":skip-frames"
                 },
 
                 QualityLevel.High => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=500",
-                    ":live-caching=500",
+                    ":network-caching=1000",
+                    ":live-caching=1000",
                     ":clock-jitter=0",
                     ":drop-late-frames",
-                    ":no-skip-frames"
+                    ":skip-frames"
                 },
 
                 QualityLevel.Medium => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=1000",
-                    ":live-caching=1000",
-                    ":clock-jitter=50",
+                    ":network-caching=1200",
+                    ":live-caching=1200",
+                    ":clock-jitter=0",
                     ":drop-late-frames",
                     ":skip-frames"
                 },
@@ -174,9 +174,9 @@ namespace MultiQuest_Management
                 QualityLevel.Low => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=2000",
-                    ":live-caching=2000",
-                    ":clock-jitter=100",
+                    ":network-caching=1500",
+                    ":live-caching=1500",
+                    ":clock-jitter=0",
                     ":drop-late-frames",
                     ":skip-frames",
                     ":avcodec-fast"
@@ -185,14 +185,12 @@ namespace MultiQuest_Management
                 QualityLevel.Minimal => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=3000",
-                    ":live-caching=3000",
-                    ":clock-jitter=200",
+                    ":network-caching=2000",
+                    ":live-caching=2000",
+                    ":clock-jitter=0",
                     ":drop-late-frames",
                     ":skip-frames",
-                    ":avcodec-fast",
-                    ":avcodec-skiploopfilter=4",
-                    ":avcodec-skipframe=1"
+                    ":avcodec-fast"
                 },
 
                 _ => GetVlcOptions(QualityLevel.Medium)

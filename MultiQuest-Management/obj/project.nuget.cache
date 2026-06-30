@@ -1,14 +1,14 @@
 {
   "version": 2,
-  "dgSpecHash": "gUz99fuNNm0=",
+  "dgSpecHash": "bN17C6We7+k=",
   "success": true,
-  "projectFilePath": "D:\\UnityGame\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
+  "projectFilePath": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MultiQuest-Management.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Muks\\.nuget\\packages\\libvlcsharp\\3.10.0\\libvlcsharp.3.10.0.nupkg.sha512",
-    "C:\\Users\\Muks\\.nuget\\packages\\libvlcsharp.wpf\\3.10.0\\libvlcsharp.wpf.3.10.0.nupkg.sha512",
-    "C:\\Users\\Muks\\.nuget\\packages\\system.reactive\\5.0.0\\system.reactive.5.0.0.nupkg.sha512",
-    "C:\\Users\\Muks\\.nuget\\packages\\videolan.libvlc.windows\\3.0.23.1\\videolan.libvlc.windows.3.0.23.1.nupkg.sha512",
-    "C:\\Users\\Muks\\.nuget\\packages\\zeroconf\\3.7.16\\zeroconf.3.7.16.nupkg.sha512"
+    "C:\\Users\\muks\\.nuget\\packages\\libvlcsharp\\3.10.0\\libvlcsharp.3.10.0.nupkg.sha512",
+    "C:\\Users\\muks\\.nuget\\packages\\libvlcsharp.wpf\\3.10.0\\libvlcsharp.wpf.3.10.0.nupkg.sha512",
+    "C:\\Users\\muks\\.nuget\\packages\\system.reactive\\5.0.0\\system.reactive.5.0.0.nupkg.sha512",
+    "C:\\Users\\muks\\.nuget\\packages\\videolan.libvlc.windows\\3.0.23.1\\videolan.libvlc.windows.3.0.23.1.nupkg.sha512",
+    "C:\\Users\\muks\\.nuget\\packages\\zeroconf\\3.7.16\\zeroconf.3.7.16.nupkg.sha512"
   ],
   "logs": []
 }

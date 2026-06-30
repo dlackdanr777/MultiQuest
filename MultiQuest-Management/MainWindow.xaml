@@ -998,6 +998,11 @@ ResizeMode="CanResize">
                                                                     <Setter Property="Visibility" Value="Visible" />
                                                                     <Setter Property="Background" Value="#2A2316" />
                                                                 </DataTrigger>
+                                                                <!-- FROZEN 상태: 화면 멈춤 -->
+                                                                <DataTrigger Binding="{Binding StreamState}" Value="FROZEN">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                    <Setter Property="Background" Value="#2A1616" />
+                                                                </DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </Border.Style>
@@ -1015,6 +1020,10 @@ ResizeMode="CanResize">
                                                                     <DataTrigger Binding="{Binding StreamState}" Value="STARTING">
                                                                         <Setter Property="Text" Value="◐ 준비중" />
                                                                         <Setter Property="Foreground" Value="#FFA500" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding StreamState}" Value="FROZEN">
+                                                                        <Setter Property="Text" Value="⬛ 화면멈춤" />
+                                                                        <Setter Property="Foreground" Value="#FF6B6B" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>

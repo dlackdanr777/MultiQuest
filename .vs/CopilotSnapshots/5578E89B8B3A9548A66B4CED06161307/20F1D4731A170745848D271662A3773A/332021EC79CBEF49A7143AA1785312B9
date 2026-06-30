@@ -1,0 +1,363 @@
+﻿using LibVLCSharp.Shared;
+using LibVLCSharp.Shared;
+using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Windows.Media;
+
+namespace MultiQuest_Management
+{
+    public sealed class RtspTileViewModel : INotifyPropertyChanged, IDisposable
+    {
+        private readonly LibVLC _libVlc;
+        private readonly RtspQualityManager _qualityManager;
+        private Media? _media;
+        private string _status = "대기 중";
+        private System.Windows.Media.Brush _statusBrush = System.Windows.Media.Brushes.LightGray;
+        private bool _disposed;
+        private RtspQualityManager.QualityLevel _currentQuality;
+        private int _bufferingCount;
+        private string _lastPlayedUrl = null;
+        private string _qualityLevel = "-";
+        private double _bufferingRate = 0.0;
+        private int _networkCaching = 0;
+        private bool _isPlaying = false;
+
+        // 프레임 수신 타임아웃 감지 (절전모드 시 화면 멈춤 감지용)
+        private DateTime _lastFrameTimeUtc = DateTime.MinValue;
+        private System.Threading.Timer _freezeDetectTimer;
+        private const int FreezeTimeoutSeconds = 6;
+        private volatile bool _isFrozen = false;
+
+        public QuestAgentInfo Agent { get; }
+
+        public LibVLCSharp.Shared.MediaPlayer MediaPlayer { get; }
+
+        public string Title =>
+            string.IsNullOrWhiteSpace(Agent.Model)
+                ? Agent.Host
+                : $"{Agent.Model}";
+
+        public string Subtitle =>
+            $"{Agent.Host}:{Agent.StatusPort} / Battery {Agent.Battery}%";
+
+        /// <summary>
+        /// 실제로 재생 중인지 여부 (MediaPlayer.IsPlaying 상태)
+        /// </summary>
+        public bool IsPlaying
+        {
+            get => _isPlaying;
+            private set
+            {
+                if (_isPlaying == value) return;
+                _isPlaying = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string Status
+        {
+            get => _status;
+            private set
+            {
+                if (_status == value) return;
+                _status = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public System.Windows.Media.Brush StatusBrush
+        {
+            get => _statusBrush;
+            private set
+            {
+                if (_statusBrush == value) return;
+                _statusBrush = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string QualityLevel
+        {
+            get => _qualityLevel;
+            private set
+            {
+                if (_qualityLevel == value) return;
+                _qualityLevel = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public double BufferingRate
+        {
+            get => _bufferingRate;
+            private set
+            {
+                if (Math.Abs(_bufferingRate - value) < 0.01) return;
+                _bufferingRate = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public int NetworkCaching
+        {
+            get => _networkCaching;
+            private set
+            {
+                if (_networkCaching == value) return;
+                _networkCaching = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public RtspTileViewModel(LibVLC libVlc, QuestAgentInfo agent, RtspQualityManager qualityManager)
+        {
+            _libVlc = libVlc;
+            Agent = agent;
+            _qualityManager = qualityManager;
+
+            MediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVlc)
+            {
+                EnableHardwareDecoding = true,
+                Mute = true
+            };
+
+            MediaPlayer.Playing += (_, __) =>
+            {
+                _isFrozen = false;
+                _lastFrameTimeUtc = DateTime.UtcNow;
+                StartFreezeDetector();
+                SetStatus("재생 중", System.Windows.Media.Brushes.LightGreen);
+                IsPlaying = true;
+            };
+
+            // 스트림 시간이 진행될 때마다 마지막 프레임 수신 시각 갱신
+            MediaPlayer.TimeChanged += (_, __) =>
+            {
+                _lastFrameTimeUtc = DateTime.UtcNow;
+            };
+
+            MediaPlayer.Buffering += (_, e) =>
+            {
+                _bufferingCount++;
+                _qualityManager.RecordBuffering(Agent.Host);
+                SetStatus("버퍼링", System.Windows.Media.Brushes.Khaki);
+                // 버퍼링 중에도 재생 중으로 간주
+            };
+
+            MediaPlayer.EncounteredError += (_, __) =>
+            {
+                StopFreezeDetector();
+                SetStatus("재생 오류", System.Windows.Media.Brushes.OrangeRed);
+                IsPlaying = false;
+            };
+
+            MediaPlayer.Stopped += (_, __) =>
+            {
+                StopFreezeDetector();
+                // 프리즈 감지로 멈춘 경우 "화면 멈춤" 상태를 유지
+                if (!_isFrozen)
+                    SetStatus("중지됨", System.Windows.Media.Brushes.LightGray);
+                IsPlaying = false;
+            };
+
+            MediaPlayer.EndReached += (_, __) =>
+            {
+                StopFreezeDetector();
+                SetStatus("스트림 종료됨", System.Windows.Media.Brushes.Orange);
+                IsPlaying = false;
+            };
+        }
+
+        public void Start(int activeStreamCount)
+        {
+            if (_disposed) return;
+
+            if (string.IsNullOrWhiteSpace(Agent.RtspUrl))
+            {
+                SetStatus("RTSP URL 없음", System.Windows.Media.Brushes.OrangeRed);
+                return;
+            }
+
+            // 이미 같은 URL을 재생 중이면 스킵 (단, 프리즈 감지된 경우 재시작)
+            if (_lastPlayedUrl == Agent.RtspUrl && MediaPlayer.IsPlaying && !_isFrozen)
+            {
+                return;
+            }
+
+            try
+            {
+                // 기존 스트림 정리 및 프리즈 상태 초기화
+                _isFrozen = false;
+                _lastFrameTimeUtc = DateTime.MinValue;
+                Stop();
+
+                // 품질 레벨 결정
+                _currentQuality = _qualityManager.RegisterStream(Agent.Host, activeStreamCount);
+                var qualityDesc = RtspQualityManager.GetQualityDescription(_currentQuality);
+
+                SetStatus($"연결 중 ({qualityDesc})", System.Windows.Media.Brushes.Khaki);
+
+                _media?.Dispose();
+                _media = new Media(_libVlc, Agent.RtspUrl, FromType.FromLocation);
+
+                // 품질에 맞는 VLC 옵션 적용
+                var options = RtspQualityManager.GetVlcOptions(_currentQuality);
+                foreach (var option in options)
+                {
+                    _media.AddOption(option);
+                }
+
+                // 품질 정보 업데이트
+                UpdateQualityInfo();
+
+                MediaPlayer.Play(_media);
+                _lastPlayedUrl = Agent.RtspUrl; // URL 기록
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"재생 시작 실패: {ex.Message}", System.Windows.Media.Brushes.OrangeRed);
+            }
+        }
+
+        /// <summary>
+        /// RTSP URL이 변경되었을 때 호출하여 스트림을 재시작합니다.
+        /// </summary>
+        public void Restart(int activeStreamCount)
+        {
+            if (_disposed) return;
+
+            // URL이 변경되었는지 확인
+            if (_lastPlayedUrl != Agent.RtspUrl)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RtspTileViewModel] URL 변경 감지: {_lastPlayedUrl} -> {Agent.RtspUrl}");
+                Start(activeStreamCount);
+            }
+        }
+
+        public void Stop()
+        {
+            try
+            {
+                StopFreezeDetector();
+                _qualityManager.UnregisterStream(Agent.Host);
+                MediaPlayer.Stop();
+                _lastPlayedUrl = null; // URL 추적 초기화
+                IsPlaying = false;
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        private void StartFreezeDetector()
+        {
+            _freezeDetectTimer?.Dispose();
+            // FreezeTimeoutSeconds 후 첫 검사, 이후 2초마다 반복
+            _freezeDetectTimer = new System.Threading.Timer(CheckFreeze, null,
+                TimeSpan.FromSeconds(FreezeTimeoutSeconds),
+                TimeSpan.FromSeconds(2));
+        }
+
+        private void StopFreezeDetector()
+        {
+            _freezeDetectTimer?.Dispose();
+            _freezeDetectTimer = null;
+        }
+
+        private void CheckFreeze(object? _)
+        {
+            if (_disposed || !_isPlaying || _isFrozen) return;
+            if (_lastFrameTimeUtc == DateTime.MinValue) return;
+
+            var elapsed = (DateTime.UtcNow - _lastFrameTimeUtc).TotalSeconds;
+            if (elapsed >= FreezeTimeoutSeconds)
+            {
+                _isFrozen = true;
+                StopFreezeDetector();
+                System.Diagnostics.Debug.WriteLine(
+                    $"[RtspTile] {Agent.Host} 화면 멈춤 감지 (마지막 프레임: {elapsed:F1}초 전)");
+                SetStatus("화면 멈춤", System.Windows.Media.Brushes.OrangeRed);
+                IsPlaying = false;
+            }
+        }
+
+        private void SetStatus(string status, System.Windows.Media.Brush brush)
+        {
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                Status = status;
+                StatusBrush = brush;
+            });
+        }
+
+        /// <summary>
+        /// 현재 품질 정보를 UI 속성에 업데이트합니다.
+        /// </summary>
+        public void UpdateQualityInfo()
+        {
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                var streamInfo = _qualityManager.GetStreamInfo(Agent.Host);
+                if (streamInfo != null)
+                {
+                    QualityLevel = GetQualityDisplayName(streamInfo.CurrentQuality);
+                    BufferingRate = streamInfo.BufferingRate * 100;
+                    NetworkCaching = GetNetworkCachingValue(streamInfo.CurrentQuality);
+                }
+                else
+                {
+                    QualityLevel = "-";
+                    BufferingRate = 0.0;
+                    NetworkCaching = 0;
+                }
+            });
+        }
+
+        private static string GetQualityDisplayName(RtspQualityManager.QualityLevel quality)
+        {
+            return quality switch
+            {
+                RtspQualityManager.QualityLevel.Ultra => "Ultra",
+                RtspQualityManager.QualityLevel.High => "High",
+                RtspQualityManager.QualityLevel.Medium => "Medium",
+                RtspQualityManager.QualityLevel.Low => "Low",
+                RtspQualityManager.QualityLevel.Minimal => "Minimal",
+                _ => "-"
+            };
+        }
+
+        private static int GetNetworkCachingValue(RtspQualityManager.QualityLevel quality)
+        {
+            return quality switch
+            {
+                RtspQualityManager.QualityLevel.Ultra => 250,
+                RtspQualityManager.QualityLevel.High => 500,
+                RtspQualityManager.QualityLevel.Medium => 1000,
+                RtspQualityManager.QualityLevel.Low => 2000,
+                RtspQualityManager.QualityLevel.Minimal => 3000,
+                _ => 0
+            };
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            IsPlaying = false;
+            StopFreezeDetector();
+            try { _qualityManager.UnregisterStream(Agent.Host); } catch { }
+            try { MediaPlayer.Stop(); } catch { }
+            try { _media?.Dispose(); } catch { }
+            try { MediaPlayer.Dispose(); } catch { }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? prop = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(prop));
+    }
+}

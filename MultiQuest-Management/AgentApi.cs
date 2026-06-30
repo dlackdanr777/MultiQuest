@@ -13,9 +13,22 @@ namespace MultiQuest_Management
     /// </summary>
     public static class AgentApi
     {
+        // 일반 API용 (빠른 응답 기대)
         private static readonly HttpClient _http = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        // 오프라인 감지 전용 (1초 타임아웃)
+        private static readonly HttpClient _httpFast = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(1)
+        };
+
+        // stopAllStoryWing 전용 (Agent가 내부적으로 최대 ~4.5초 처리)
+        private static readonly HttpClient _httpLong = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
         };
 
         /// <summary>
@@ -56,6 +69,30 @@ namespace MultiQuest_Management
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[AgentApi] GetStatusAsync failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 오프라인 감지 전용 빠른 상태 조회 (1초 타임아웃, 로그 없음)
+        /// </summary>
+        public static async Task<QuestAgentInfo> GetStatusFastAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/status";
+                string json = await _httpFast.GetStringAsync(url);
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(
+                    json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (!string.IsNullOrWhiteSpace(info?.DeviceName))
+                    info.DeviceName = info.DeviceName.Trim();
+                else if (info != null)
+                    info.DeviceName = null;
+                return info;
+            }
+            catch
+            {
                 return null;
             }
         }
@@ -375,6 +412,114 @@ namespace MultiQuest_Management
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[AgentApi] ShowKeepAwakeAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 모든 StoryWing 앱 종료 요청.
+        /// 신규 엔드포인트(/command/stopAllStoryWing) 시도 후 404이면
+        /// fallbackPackages 목록으로 개별 StopAppAsync 폴백 실행.
+        /// </summary>
+        public static async Task<bool> StopAllStoryWingAsync(
+            string host,
+            int port = 18080,
+            bool goHome = true,
+            IEnumerable<string> fallbackPackages = null)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            if (port <= 0)
+                port = 18080;
+
+            // ── 1단계: 신규 엔드포인트 시도 ──────────────────────────────
+            try
+            {
+                string url = $"http://{host}:{port}/command/stopAllStoryWing";
+
+                var body = new
+                {
+                    goHome,
+                    retryCount      = 3,
+                    retryIntervalMs = 150,
+                    goHomeDelayMs   = 600
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpLong.PostAsync(url, content);
+                string responseText = await response.Content.ReadAsStringAsync();
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWing -> HTTP {(int)response.StatusCode}: {responseText}");
+
+                if (response.IsSuccessStatusCode)
+                    return true;
+
+                // 404 이외의 오류는 실패로 처리
+                if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                    return false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    "[AgentApi] StopAllStoryWing: 404 → fallback to per-package stop");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWing new API failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // ── 2단계: 폴백 - 패키지별 개별 종료 ─────────────────────────
+            var pkgs = fallbackPackages?
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (pkgs != null && pkgs.Count > 0)
+            {
+                var stopTasks = pkgs.Select(pkg =>
+                    StopAppAsync(host, port, pkg, goHome: false));
+
+                await Task.WhenAll(stopTasks);
+            }
+
+            if (goHome)
+                await GoHomeAsync(host, port);
+
+            // 폴백은 명령 전송 자체를 성공으로 간주
+            return true;
+        }
+
+        /// <summary>
+        /// Android CapturePermissionActivity UI를 띄우도록 요청.
+        /// restartCapture와 달리 정상 송출 중인 캡처를 종료하지 않습니다.
+        /// STOPPED/IDLE이 15초 이상 지속될 때 Android 와치독 fallback으로 사용합니다.
+        /// </summary>
+        public static async Task<bool> StartCaptureUiAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/startCaptureUi";
+
+                using var content = new StringContent(
+                    "{}",
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StartCaptureUi {host}:{port} → {(int)response.StatusCode}");
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StartCaptureUiAsync failed: {ex.Message}");
                 return false;
             }
         }
