@@ -384,6 +384,156 @@ ResizeMode="CanResize">
 
                 <!-- 하단 Search Device + Program Stop -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="8,0,8,10">
+
+                    <!-- ── 프로파일 패널 ── -->
+                    <Border Background="#1E2530" CornerRadius="10" Margin="0,0,0,8" Padding="8,6">
+                        <StackPanel>
+                            <!-- 레이블 + 현재 프로파일 -->
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="수신 프로파일"
+                                           Foreground="#9DB0C9" FontSize="10" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtAutoMode" Grid.Column="1"
+                                           Text="AUTO" Foreground="#3CE48C" FontSize="9" FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <!-- 현재 프로파일 이름 -->
+                            <TextBlock x:Name="TxtProfileName" Text="Balanced"
+                                       Foreground="White" FontSize="13" FontWeight="Bold"
+                                       HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                            <!-- 진단 수치 -->
+                            <TextBlock x:Name="TxtProfileHint" Text=""
+                                       Foreground="#9DB0C9" FontSize="9" TextWrapping="Wrap"
+                                       HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                            <!-- 3개 버튼 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="BtnProfileStability" Grid.Column="0"
+                                        Content="안정" FontSize="10" Height="24" Margin="1,0"
+                                        Click="ProfileStability_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="#2A3444"/>
+                                            <Setter Property="Foreground" Value="#9DB0C9"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="Cursor" Value="Hand"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="bd" CornerRadius="6"
+                                                                Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="bd" Property="Opacity" Value="0.8"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button x:Name="BtnProfileBalanced" Grid.Column="1"
+                                        Content="균형" FontSize="10" Height="24" Margin="1,0"
+                                        Click="ProfileBalanced_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="#2A3444"/>
+                                            <Setter Property="Foreground" Value="#9DB0C9"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="Cursor" Value="Hand"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="bd" CornerRadius="6"
+                                                                Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="bd" Property="Opacity" Value="0.8"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button x:Name="BtnProfileQuality" Grid.Column="2"
+                                        Content="화질" FontSize="10" Height="24" Margin="1,0"
+                                        Click="ProfileQuality_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="#2A3444"/>
+                                            <Setter Property="Foreground" Value="#9DB0C9"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="Cursor" Value="Hand"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="bd" CornerRadius="6"
+                                                                Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="bd" Property="Opacity" Value="0.8"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </Grid>
+                            <!-- AUTO 복귀 버튼 -->
+                            <Button x:Name="BtnProfileAuto" Content="자동 감지 켜기"
+                                    FontSize="9" Height="20" Margin="0,4,0,0"
+                                    Visibility="Collapsed"
+                                    Click="ProfileAuto_Click">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background" Value="#253040"/>
+                                        <Setter Property="Foreground" Value="#3CE48C"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border x:Name="bd" CornerRadius="5"
+                                                            Background="{TemplateBinding Background}">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="bd" Property="Opacity" Value="0.8"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
                     <!-- Search Device -->
                     <Button x:Name="BtnSearchDevice"
                             Height="80" Margin="0,4"

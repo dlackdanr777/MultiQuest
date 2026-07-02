@@ -19,6 +19,7 @@ namespace MultiQuest_Management
         private readonly VlcLib _libVlc;
         private readonly RtspQualityManager _qualityManager;
         private readonly bool _disableHardwareDecoding;
+        private readonly RtspOperationProfile _profile;
 
         private VlcMedia? _media;
 
@@ -48,8 +49,13 @@ namespace MultiQuest_Management
         private volatile int _errorCount;
         private int _timeChangedCount;
 
-        private const int FirstVideoSignalTimeoutSeconds = 20;
-        private const int ReconnectAfterErrorMinSeconds = 5;
+        // Stability 모드는 30초, 그 외 20초
+        private int FirstVideoSignalTimeoutSeconds =>
+            _profile == RtspOperationProfile.Stability ? 30 : 20;
+
+        // Stability 모드는 8초, 그 외 5초
+        private int ReconnectAfterErrorMinSeconds =>
+            _profile == RtspOperationProfile.Stability ? 8 : 5;
 
         public bool IsFrozen => _isFrozen;
 
@@ -135,12 +141,14 @@ namespace MultiQuest_Management
             VlcLib libVlc,
             QuestAgentInfo agent,
             RtspQualityManager qualityManager,
-            bool disableHardwareDecoding = false)
+            bool disableHardwareDecoding = false,
+            RtspOperationProfile profile = RtspOperationProfile.Balanced)
         {
             _libVlc = libVlc;
             Agent = agent;
             _qualityManager = qualityManager;
             _disableHardwareDecoding = disableHardwareDecoding;
+            _profile = profile;
 
             MediaPlayer = new VlcMediaPlayer(_libVlc)
             {
@@ -331,7 +339,7 @@ namespace MultiQuest_Management
                     Agent.Host,
                     activeStreamCount);
 
-                int effectiveCachingMs = GetNetworkCachingValue(_currentQuality);
+                int effectiveCachingMs = GetNetworkCachingValueByProfile(_currentQuality);
                 string qualityDesc =
                     $"{GetQualityDisplayName(_currentQuality)} ({effectiveCachingMs}ms 버퍼)";
 
@@ -525,7 +533,7 @@ namespace MultiQuest_Management
                 {
                     QualityLevel = GetQualityDisplayName(streamInfo.CurrentQuality);
                     BufferingRate = streamInfo.BufferingRate * 100;
-                    NetworkCaching = GetNetworkCachingValue(streamInfo.CurrentQuality);
+                    NetworkCaching = GetNetworkCachingValueByProfile(streamInfo.CurrentQuality);
                 }
                 else
                 {
@@ -580,16 +588,37 @@ namespace MultiQuest_Management
             };
         }
 
-        private static int GetNetworkCachingValue(RtspQualityManager.QualityLevel quality)
+        private int GetNetworkCachingValueByProfile(RtspQualityManager.QualityLevel quality)
         {
-            return quality switch
+            return _profile switch
             {
-                RtspQualityManager.QualityLevel.Ultra => 1000,
-                RtspQualityManager.QualityLevel.High => 1000,
-                RtspQualityManager.QualityLevel.Medium => 1200,
-                RtspQualityManager.QualityLevel.Low => 1500,
-                RtspQualityManager.QualityLevel.Minimal => 2000,
-                _ => 1000
+                RtspOperationProfile.Stability => quality switch
+                {
+                    RtspQualityManager.QualityLevel.Ultra   => 1500,
+                    RtspQualityManager.QualityLevel.High    => 2000,
+                    RtspQualityManager.QualityLevel.Medium  => 2500,
+                    RtspQualityManager.QualityLevel.Low     => 3000,
+                    RtspQualityManager.QualityLevel.Minimal => 4000,
+                    _ => 2500
+                },
+                RtspOperationProfile.Quality => quality switch
+                {
+                    RtspQualityManager.QualityLevel.Ultra   => 700,
+                    RtspQualityManager.QualityLevel.High    => 900,
+                    RtspQualityManager.QualityLevel.Medium  => 1200,
+                    RtspQualityManager.QualityLevel.Low     => 1500,
+                    RtspQualityManager.QualityLevel.Minimal => 2000,
+                    _ => 1000
+                },
+                _ => quality switch  // Balanced
+                {
+                    RtspQualityManager.QualityLevel.Ultra   => 1000,
+                    RtspQualityManager.QualityLevel.High    => 1000,
+                    RtspQualityManager.QualityLevel.Medium  => 1200,
+                    RtspQualityManager.QualityLevel.Low     => 1500,
+                    RtspQualityManager.QualityLevel.Minimal => 2000,
+                    _ => 1000
+                }
             };
         }
 

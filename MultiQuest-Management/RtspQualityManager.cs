@@ -7,6 +7,14 @@ using System.Threading.Tasks;
 
 namespace MultiQuest_Management
 {
+    // WPF 수신 최적화 프로파일 ? 현장 환경에 맞게 MainWindow._operationProfile 로 선택
+    public enum RtspOperationProfile
+    {
+        Stability,   // 저사양/불안정 네트워크: 끊김 방지 우선, 큰 캐시
+        Balanced,    // 기본 균형 모드
+        Quality      // 고사양/고속 네트워크: 지연 최소화, 화질 우선
+    }
+
     /// <summary>
     /// 다중 RTSP 스트림의 성능을 모니터링하고 동적으로 품질을 조절합니다.
     /// </summary>
@@ -16,14 +24,14 @@ namespace MultiQuest_Management
         private readonly System.Threading.Timer _monitorTimer;
         private bool _disposed;
 
-        // 품질 레벨 정의
+        // 품질 레벨 정의 (네트워크 캐시 크기는 RtspTileViewModel.GetNetworkCachingValueByProfile 이 결정)
         public enum QualityLevel
         {
-            Ultra,   // 최고 품질: 버퍼 250ms, 프레임 드롭 없음
-            High,    // 고품질: 버퍼 500ms, 선택적 프레임 드롭
-            Medium,  // 중품질: 버퍼 1000ms, 프레임 드롭 활성화
-            Low,     // 저품질: 버퍼 2000ms, 적극적 프레임 드롭
-            Minimal  // 최소 품질: 버퍼 3000ms, 최대 프레임 드롭
+            Ultra,   // 최고 품질
+            High,    // 고품질
+            Medium,  // 중품질
+            Low,     // 저품질: avcodec-fast 활성화
+            Minimal  // 최소 품질: avcodec-fast 활성화, 최대 캐시
         }
 
         // 시스템 성능 임계값
@@ -174,23 +182,25 @@ namespace MultiQuest_Management
                 QualityLevel.Low => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=1500",
-                    ":live-caching=1500",
+                    ":network-caching=2500",
+                    ":live-caching=2500",
                     ":clock-jitter=0",
                     ":drop-late-frames",
                     ":skip-frames",
-                    ":avcodec-fast"
+                    ":avcodec-fast",
+                    ":no-audio"
                 },
 
                 QualityLevel.Minimal => new[]
                 {
                     ":rtsp-tcp",
-                    ":network-caching=2000",
-                    ":live-caching=2000",
+                    ":network-caching=3500",
+                    ":live-caching=3500",
                     ":clock-jitter=0",
                     ":drop-late-frames",
                     ":skip-frames",
-                    ":avcodec-fast"
+                    ":avcodec-fast",
+                    ":no-audio"
                 },
 
                 _ => GetVlcOptions(QualityLevel.Medium)
@@ -204,12 +214,12 @@ namespace MultiQuest_Management
         {
             return quality switch
             {
-                QualityLevel.Ultra => "최고 품질 (250ms 버퍼)",
-                QualityLevel.High => "고품질 (500ms 버퍼)",
-                QualityLevel.Medium => "중품질 (1000ms 버퍼)",
-                QualityLevel.Low => "저품질 (2000ms 버퍼)",
-                QualityLevel.Minimal => "최소 품질 (3000ms 버퍼)",
-                _ => "중품질"
+                QualityLevel.Ultra => "Ultra",
+                QualityLevel.High => "High",
+                QualityLevel.Medium => "Medium",
+                QualityLevel.Low => "Low",
+                QualityLevel.Minimal => "Minimal",
+                _ => "Medium"
             };
         }
 

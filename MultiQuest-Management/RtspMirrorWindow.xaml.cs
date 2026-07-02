@@ -37,15 +37,15 @@ namespace MultiQuest_Management
             _libVlc = new LibVLC(
                 "--no-audio",
                 "--rtsp-tcp",
-                "--network-caching=250",
-                "--live-caching=250"
+                "--network-caching=1000",
+                "--live-caching=1000"
             );
 
             _qualityManager = new RtspQualityManager();
 
             var agentList = agents.Where(a =>
                          !string.IsNullOrWhiteSpace(a.RtspUrl) &&
-                         string.Equals(a.StreamState, "streaming", StringComparison.OrdinalIgnoreCase))
+                         string.Equals(a.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase))
                          .ToList();
 
             foreach (var agent in agentList)
