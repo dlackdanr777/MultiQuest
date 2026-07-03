@@ -1094,47 +1094,21 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// 단일 기기 앱 종료 — fastMode=false: fallbackPackages 허용 안전 경로
-        ///                        fastMode=true:  2.5s timeout 빠른 경로 (전체 종료용)
+        /// 단일 기기 앱 종료 - 신규 API 우선, 404 시 패키지별 폴백 포함
         /// </summary>
-        private Task<bool> StopDeviceByBestMethodAsync(
-            Device device,
-            bool fastMode = false)
+        private Task<bool> StopDeviceByBestMethodAsync(Device device)
         {
-            int port = device.AgentStatusPort > 0
-                ? device.AgentStatusPort
-                : 18080;
-
-            if (fastMode)
-            {
-                // 전체 종료용 빠른 경로:
-                // fallbackPackages 없이 Agent stopAllStoryWing만 호출합니다.
-                return AgentApi.StopAllStoryWingFastAsync(
-                    host:            device.AgentHost,
-                    port:            port,
-                    goHome:          true,
-                    retryCount:      2,
-                    retryIntervalMs: 100,
-                    goHomeDelayMs:   250);
-            }
-
-            // 단일 기기 안전 경로: fallbackPackages 허용
+            int port = device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080;
             var allPkgs = _pkgNames.SelectMany(c => c).Distinct();
-            return AgentApi.StopAllStoryWingAsync(
-                device.AgentHost,
-                port,
-                goHome: true,
-                fallbackPackages: allPkgs);
+            return AgentApi.StopAllStoryWingAsync(device.AgentHost, port, goHome: true, fallbackPackages: allPkgs);
         }
 
-        // 전체 기기 동시 종료 — 빠른 모드, 전체 목표 3초 내
+        // 병렬 처리
         private async void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
         {
             PlayClickSound();
 
             this.IsEnabled = false;
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
@@ -1150,36 +1124,25 @@ namespace MultiQuest_Management
 
                 var failed = new ConcurrentBag<string>();
 
-                // 전체 종료는 빠른 모드 사용:
-                // Agent에 목령만 빠르게 전달하고, 실제 앱 종료는 Agent 내부 백그라운드에서 처리합니다.
                 var tasks = agentDevices.Select(async device =>
                 {
-                    bool ok = await StopDeviceByBestMethodAsync(
-                        device,
-                        fastMode: true);
+                    bool ok = await StopDeviceByBestMethodAsync(device);
 
                     if (!ok)
-                        failed.Add(
-                            $"{device.Name} ({device.AgentHost}:{(device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080)})");
-                }).ToList();
+                        failed.Add($"{device.Name} ({device.AgentHost}:{(device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080)})");
+                });
 
                 await Task.WhenAll(tasks);
-
-                sw.Stop();
 
                 if (failed.Count > 0)
                 {
                     ShowMsg(
-                        $"전체 종료 명령 전송 완료: {agentDevices.Count - failed.Count}/{agentDevices.Count}개 성공\n" +
-                        $"소요 시간: {sw.Elapsed.TotalSeconds:F1}초\n\n" +
-                        $"응답 실패 기기:\n{string.Join("\n", failed)}");
+                        $"일부 기기 앱 종료 명령 실패:\n" +
+                        string.Join("\n", failed));
                 }
                 else
                 {
-                    ShowMsg(
-                        $"전체 기기 앱 종료 명령 전송 완료\n" +
-                        $"대상: {agentDevices.Count}개\n" +
-                        $"소요 시간: {sw.Elapsed.TotalSeconds:F1}초");
+                    ShowMsg("전체 기기 앱 종료 명령 전송 완료");
                 }
             }
             finally

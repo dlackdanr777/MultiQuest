@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
@@ -8,37 +8,31 @@ using System.Threading.Tasks;
 namespace MultiQuest_Management
 {
     /// <summary>
-    /// Quest Agent HTTP API Å¬¶óÀÌ¾ğÆ®
-    /// ADB ÀÇÁ¸¼ºÀ» Á¦°ÅÇÏ°í Agent¿Í Á÷Á¢ Åë½ÅÇÕ´Ï´Ù.
+    /// Quest Agent HTTP API í´ë¼ì´ì–¸íŠ¸
+    /// ADB ì˜ì¡´ì„±ì„ ì œê±°í•˜ê³  Agentì™€ ì§ì ‘ í†µì‹ í•©ë‹ˆë‹¤.
     /// </summary>
     public static class AgentApi
     {
-        // ÀÏ¹İ API¿ë (ºü¸¥ ÀÀ´ä ±â´ë)
+        // ì¼ë°˜ APIìš© (ë¹ ë¥¸ ì‘ë‹µ ê¸°ëŒ€)
         private static readonly HttpClient _http = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(3)
         };
 
-        // ¿ÀÇÁ¶óÀÎ °¨Áö Àü¿ë (1ÃÊ Å¸ÀÓ¾Æ¿ô)
+        // ì˜¤í”„ë¼ì¸ ê°ì§€ ì „ìš© (1ì´ˆ íƒ€ì„ì•„ì›ƒ)
         private static readonly HttpClient _httpFast = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(1)
         };
 
-        // stopAllStoryWing Àü¿ë (Agent°¡ ³»ºÎÀûÀ¸·Î ÃÖ´ë ~4.5ÃÊ Ã³¸®)
+        // stopAllStoryWing ì „ìš© (Agentê°€ ë‚´ë¶€ì ìœ¼ë¡œ ìµœëŒ€ ~4.5ì´ˆ ì²˜ë¦¬)
         private static readonly HttpClient _httpLong = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
 
-        // ÀüÃ¼ ±â±â µ¿½Ã Á¾·á¿ë ºü¸¥ °æ·Î (2.5s timeout)
-        private static readonly HttpClient _httpStopFast = new HttpClient
-        {
-            Timeout = TimeSpan.FromMilliseconds(2500)
-        };
-
         /// <summary>
-        /// Agent »óÅÂ Á¶È¸ (¹èÅÍ¸®, ½ºÆ®¸² »óÅÂ µî)
+        /// Agent ìƒíƒœ ì¡°íšŒ (ë°°í„°ë¦¬, ìŠ¤íŠ¸ë¦¼ ìƒíƒœ ë“±)
         /// </summary>
         public static async Task<QuestAgentInfo> GetStatusAsync(string host, int port = 18080)
         {
@@ -47,7 +41,7 @@ namespace MultiQuest_Management
                 string url = $"http://{host}:{port}/status";
                 string json = await _http.GetStringAsync(url);
 
-                // µğ¹ö±×: Agent ÀÀ´ä ·Î±×
+                // ë””ë²„ê·¸: Agent ì‘ë‹µ ë¡œê·¸
                 System.Diagnostics.Debug.WriteLine($"[AgentApi] Status from {host}:{port}");
                 System.Diagnostics.Debug.WriteLine($"[AgentApi] JSON: {json}");
 
@@ -58,7 +52,7 @@ namespace MultiQuest_Management
                         PropertyNameCaseInsensitive = true
                     });
 
-                // deviceNameÀÌ ºñ¾îÀÖ°Å³ª °ø¹é¸¸ ÀÖÀ¸¸é null·Î Ã³¸®
+                // deviceNameì´ ë¹„ì–´ìˆê±°ë‚˜ ê³µë°±ë§Œ ìˆìœ¼ë©´ nullë¡œ ì²˜ë¦¬
                 if (!string.IsNullOrWhiteSpace(info?.DeviceName))
                 {
                     info.DeviceName = info.DeviceName.Trim();
@@ -80,7 +74,7 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// ¿ÀÇÁ¶óÀÎ °¨Áö Àü¿ë ºü¸¥ »óÅÂ Á¶È¸ (1ÃÊ Å¸ÀÓ¾Æ¿ô, ·Î±× ¾øÀ½)
+        /// ì˜¤í”„ë¼ì¸ ê°ì§€ ì „ìš© ë¹ ë¥¸ ìƒíƒœ ì¡°íšŒ (1ì´ˆ íƒ€ì„ì•„ì›ƒ, ë¡œê·¸ ì—†ìŒ)
         /// </summary>
         public static async Task<QuestAgentInfo> GetStatusFastAsync(string host, int port = 18080)
         {
@@ -104,7 +98,7 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// ¾Û ½ÇÇà ¸í·É (ADB ´ëÃ¼)
+        /// ì•± ì‹¤í–‰ ëª…ë ¹ (ADB ëŒ€ì²´)
         /// </summary>
         public static async Task<bool> LaunchAppAsync(
             string host,
@@ -157,7 +151,7 @@ namespace MultiQuest_Management
                 }
                 catch
                 {
-                    // ÀÀ´ä ÆÄ½Ì ½ÇÆĞ ½Ã HTTP 200ÀÌ¸é ÀÏ´Ü ¼º°øÀ¸·Î Ã³¸®
+                    // ì‘ë‹µ íŒŒì‹± ì‹¤íŒ¨ ì‹œ HTTP 200ì´ë©´ ì¼ë‹¨ ì„±ê³µìœ¼ë¡œ ì²˜ë¦¬
                 }
 
                 return true;
@@ -170,7 +164,7 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// ¾Û Á¾·á ¿äÃ» (Çù·Â Á¾·á ¹æ½Ä, ADB force-stop ´ëÃ¼)
+        /// ì•± ì¢…ë£Œ ìš”ì²­ (í˜‘ë ¥ ì¢…ë£Œ ë°©ì‹, ADB force-stop ëŒ€ì²´)
         /// </summary>
         public static async Task<bool> StopAppAsync(
             string host,
@@ -219,7 +213,7 @@ namespace MultiQuest_Management
                 }
                 catch
                 {
-                    // ÀÀ´ä ÆÄ½Ì ½ÇÆĞ ½Ã HTTP 200ÀÌ¸é ÀÏ´Ü ¼º°ø Ã³¸®
+                    // ì‘ë‹µ íŒŒì‹± ì‹¤íŒ¨ ì‹œ HTTP 200ì´ë©´ ì¼ë‹¨ ì„±ê³µ ì²˜ë¦¬
                 }
 
                 return true;
@@ -232,7 +226,7 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// RTSP ½ºÆ®¸² Àç½ÃÀÛ
+        /// RTSP ìŠ¤íŠ¸ë¦¼ ì¬ì‹œì‘
         /// </summary>
         public static async Task<bool> RestartCaptureAsync(string host, int port = 18080)
         {
@@ -252,7 +246,7 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// È¨ È­¸éÀ¸·Î ÀÌµ¿
+        /// í™ˆ í™”ë©´ìœ¼ë¡œ ì´ë™
         /// </summary>
         public static async Task<bool> GoHomeAsync(string host, int port = 18080)
         {
@@ -287,8 +281,8 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// ½ÇÇà ÁßÀÎ ¾Û¿¡ ½Ç½Ã°£ ¸í·É Àü¼Û
-        /// ¿¹: skip, pause, resume, next, restartLesson
+        /// ì‹¤í–‰ ì¤‘ì¸ ì•±ì— ì‹¤ì‹œê°„ ëª…ë ¹ ì „ì†¡
+        /// ì˜ˆ: skip, pause, resume, next, restartLesson
         /// </summary>
         public static async Task<bool> SendCommandAsync(
             string host,
@@ -327,9 +321,9 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// È­¸é ÄÑ±â ¹× ÀıÀü ¹æÁö (Å° ÀÌº¥Æ® Àü¼Û)
+        /// í™”ë©´ ì¼œê¸° ë° ì ˆì „ ë°©ì§€ (í‚¤ ì´ë²¤íŠ¸ ì „ì†¡)
         /// KEYCODE_WAKEUP = 224
-        /// keepAwake = true: ¼ÛÃâ Áß ÀıÀü ÁøÀÔ ¹æÁö
+        /// keepAwake = true: ì†¡ì¶œ ì¤‘ ì ˆì „ ì§„ì… ë°©ì§€
         /// </summary>
         public static async Task<bool> WakeScreenAsync(
             string host, 
@@ -364,8 +358,8 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// KeepAwake È°¼ºÈ­/ºñÈ°¼ºÈ­ ¿äÃ»
-        /// Agent ¾ÛÀÇ ÀıÀü ¹æÁö LockÀ» À¯Áö
+        /// KeepAwake í™œì„±í™”/ë¹„í™œì„±í™” ìš”ì²­
+        /// Agent ì•±ì˜ ì ˆì „ ë°©ì§€ Lockì„ ìœ ì§€
         /// </summary>
         public static async Task<bool> KeepAwakeAsync(
             string host,
@@ -400,8 +394,8 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// KeepAwakeActivity ¿­±â ¿äÃ»
-        /// Agent ¾ÛÀÇ ´ë±â È­¸é(KeepAwakeActivity)À» Ç¥½Ã
+        /// KeepAwakeActivity ì—´ê¸° ìš”ì²­
+        /// Agent ì•±ì˜ ëŒ€ê¸° í™”ë©´(KeepAwakeActivity)ì„ í‘œì‹œ
         /// </summary>
         public static async Task<bool> ShowKeepAwakeAsync(
             string host,
@@ -423,9 +417,9 @@ namespace MultiQuest_Management
         }
 
         /// <summary>
-        /// ¸ğµç StoryWing ¾Û Á¾·á ¿äÃ».
-        /// ½Å±Ô ¿£µåÆ÷ÀÎÆ®(/command/stopAllStoryWing) ½Ãµµ ÈÄ 404ÀÌ¸é
-        /// fallbackPackages ¸ñ·ÏÀ¸·Î °³º° StopAppAsync Æú¹é ½ÇÇà.
+        /// ëª¨ë“  StoryWing ì•± ì¢…ë£Œ ìš”ì²­.
+        /// ì‹ ê·œ ì—”ë“œí¬ì¸íŠ¸(/command/stopAllStoryWing) ì‹œë„ í›„ 404ì´ë©´
+        /// fallbackPackages ëª©ë¡ìœ¼ë¡œ ê°œë³„ StopAppAsync í´ë°± ì‹¤í–‰.
         /// </summary>
         public static async Task<bool> StopAllStoryWingAsync(
             string host,
@@ -439,7 +433,7 @@ namespace MultiQuest_Management
             if (port <= 0)
                 port = 18080;
 
-            // ¦¡¦¡ 1´Ü°è: ½Å±Ô ¿£µåÆ÷ÀÎÆ® ½Ãµµ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+            // â”€â”€ 1ë‹¨ê³„: ì‹ ê·œ ì—”ë“œí¬ì¸íŠ¸ ì‹œë„ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             try
             {
                 string url = $"http://{host}:{port}/command/stopAllStoryWing";
@@ -465,12 +459,12 @@ namespace MultiQuest_Management
                 if (response.IsSuccessStatusCode)
                     return true;
 
-                // 404 ÀÌ¿ÜÀÇ ¿À·ù´Â ½ÇÆĞ·Î Ã³¸®
+                // 404 ì´ì™¸ì˜ ì˜¤ë¥˜ëŠ” ì‹¤íŒ¨ë¡œ ì²˜ë¦¬
                 if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
                     return false;
 
                 System.Diagnostics.Debug.WriteLine(
-                    "[AgentApi] StopAllStoryWing: 404 ¡æ fallback to per-package stop");
+                    "[AgentApi] StopAllStoryWing: 404 â†’ fallback to per-package stop");
             }
             catch (Exception ex)
             {
@@ -478,7 +472,7 @@ namespace MultiQuest_Management
                     $"[AgentApi] StopAllStoryWing new API failed: {ex.GetType().Name}: {ex.Message}");
             }
 
-            // ¦¡¦¡ 2´Ü°è: Æú¹é - ÆĞÅ°Áöº° °³º° Á¾·á ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+            // â”€â”€ 2ë‹¨ê³„: í´ë°± - íŒ¨í‚¤ì§€ë³„ ê°œë³„ ì¢…ë£Œ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             var pkgs = fallbackPackages?
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -495,14 +489,14 @@ namespace MultiQuest_Management
             if (goHome)
                 await GoHomeAsync(host, port);
 
-            // Æú¹éÀº ¸í·É Àü¼Û ÀÚÃ¼¸¦ ¼º°øÀ¸·Î °£ÁÖ
+            // í´ë°±ì€ ëª…ë ¹ ì „ì†¡ ìì²´ë¥¼ ì„±ê³µìœ¼ë¡œ ê°„ì£¼
             return true;
         }
 
         /// <summary>
-        /// ÀüÃ¼ ±â±â µ¿½Ã Á¾·á¿ë ºü¸¥ °æ·Î.
-        /// fallbackPackages¸¦ µ¹¸®Áö ¾Ê°í stopAllStoryWing¸¸ ºü¸£°Ô È£ÃâÇÕ´Ï´Ù.
-        /// Agent´Â Áï½Ã 200 OK¸¦ ¹İÈ¯ÇÏ°í ½ÇÁ¦ Á¾·á´Â ³»ºÎ ¹é±×¶ó¿îµå¿¡¼­ Ã³¸®ÇÕ´Ï´Ù.
+        /// ì „ì²´ ê¸°ê¸° ë™ì‹œ ì¢…ë£Œìš© ë¹ ë¥¸ ê²½ë¡œ.
+        /// fallbackPackagesë¥¼ ëŒë¦¬ì§€ ì•Šê³  stopAllStoryWingë§Œ ë¹ ë¥´ê²Œ í˜¸ì¶œí•©ë‹ˆë‹¤.
+        /// AgentëŠ” ì¦‰ì‹œ 200 OKë¥¼ ë°˜í™˜í•˜ê³  ì‹¤ì œ ì¢…ë£ŒëŠ” ë‚´ë¶€ ë°±ê·¸ë¼ìš´ë“œì—ì„œ ì²˜ë¦¬í•©ë‹ˆë‹¤.
         /// </summary>
         public static async Task<bool> StopAllStoryWingFastAsync(
             string host,
@@ -555,8 +549,8 @@ namespace MultiQuest_Management
 
         /// <summary>
         /// Android CapturePermissionActivity UI
-        /// restartCapture¿Í ´Ş¸® Á¤»ó ¼ÛÃâ ÁßÀÎ Ä¸Ã³¸¦ Á¾·áÇÏÁö ¾Ê½À´Ï´Ù.
-        /// STOPPED/IDLEÀÌ 15ÃÊ ÀÌ»ó Áö¼ÓµÉ ¶§ Android ¿ÍÄ¡µ¶ fallbackÀ¸·Î »ç¿ëÇÕ´Ï´Ù.
+        /// restartCaptureì™€ ë‹¬ë¦¬ ì •ìƒ ì†¡ì¶œ ì¤‘ì¸ ìº¡ì²˜ë¥¼ ì¢…ë£Œí•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
+        /// STOPPED/IDLEì´ 15ì´ˆ ì´ìƒ ì§€ì†ë  ë•Œ Android ì™€ì¹˜ë… fallbackìœ¼ë¡œ ì‚¬ìš©í•©ë‹ˆë‹¤.
         /// </summary>
         public static async Task<bool> StartCaptureUiAsync(string host, int port = 18080)
         {
@@ -572,7 +566,7 @@ namespace MultiQuest_Management
                 var response = await _http.PostAsync(url, content);
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StartCaptureUi {host}:{port} ¡æ {(int)response.StatusCode}");
+                    $"[AgentApi] StartCaptureUi {host}:{port} â†’ {(int)response.StatusCode}");
 
                 return response.IsSuccessStatusCode;
             }
