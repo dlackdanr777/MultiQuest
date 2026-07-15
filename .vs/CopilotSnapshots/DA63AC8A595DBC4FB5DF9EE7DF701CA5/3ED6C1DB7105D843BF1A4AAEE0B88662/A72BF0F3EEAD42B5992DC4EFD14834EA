@@ -1,0 +1,803 @@
+﻿using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
+using LibVLCSharp.Shared;
+
+using Button = System.Windows.Controls.Button;
+using MessageBox = System.Windows.MessageBox;
+using Window = System.Windows.Window;
+using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
+
+namespace MultiQuest_Management
+{
+    public partial class DeviceWindow : Window, INotifyPropertyChanged
+    {
+        private readonly MainWindow _mainWindow;
+        private readonly LibVLC _rtspLibVlc;
+
+        private readonly SemaphoreSlim _syncLock = new(1, 1);
+
+        private Device _currentDevice;
+        public Device CurrentDevice
+        {
+            get => _currentDevice;
+            private set
+            {
+                if (_currentDevice == value) return;
+                _currentDevice = value;
+                OnPropertyChanged(nameof(CurrentDevice));
+            }
+        }
+
+        private MediaPlayer _mediaPlayer;
+        public MediaPlayer MediaPlayer
+        {
+            get => _mediaPlayer;
+            private set
+            {
+                if (_mediaPlayer == value) return;
+                _mediaPlayer = value;
+                OnPropertyChanged(nameof(MediaPlayer));
+            }
+        }
+
+        private Media _media;
+
+        private DispatcherTimer _statusTimer;
+        private System.Threading.Timer _retryTimer;
+
+        private string _lastPlayedUrl;
+        private bool _isRefreshing;
+        private bool _isClosed;
+        private bool _suppressDeviceEvents;
+        private bool _forceSoftwareDecode;
+
+        private int _errorCount;
+        private DateTime _lastReconnectUtc   = DateTime.MinValue;
+        private DateTime _connectStartedUtc  = DateTime.MinValue;  // VLC Play() 호출 시각
+
+        // RUNNING 상태 전환 디바운스: 상태가 짧게 RUNNING → STOPPED 등으로 흔들리는 경우 방지
+        private System.Threading.Timer _runningDebounceTimer;
+        private string _pendingRunningUrl;
+
+        private const int StatusPollSeconds        = 5;
+
+        // 개인 화면은 큰 타일보다 화질/안정 균형을 조금 더 좋게 둡니다.
+        private const int PersonalNetworkCachingMs = 900;
+        private const int PersonalLiveCachingMs    = 900;
+
+        // VLC 연결 직후 초기 노이즈 구간 (초) — 이 시간 안의 Error/EndReached 는 무시합니다.
+        // MainWindow의 Uptime < 60s 필터와 같은 개념입니다.
+        private const int StartupNoiseWindowSeconds = 12;
+
+        // RUNNING 전환 후 실제 RTSP 재연결까지 기다리는 시간 (ms)
+        // Android RTSP 서버가 완전히 준비되기까지의 짧은 지연을 흡수합니다.
+        private const int RunningDebounceMs = 1500;
+
+        // 자동 재연결 과도 실행 방지
+        private const int MinReconnectIntervalMs = 2000;
+
+        public DeviceWindow(
+            MainWindow mainWindow,
+            Device device,
+            LibVLC rtspLibVlc)
+        {
+            InitializeComponent();
+
+            _mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
+            _rtspLibVlc = rtspLibVlc ?? throw new ArgumentNullException(nameof(rtspLibVlc));
+
+            CurrentDevice = device ?? throw new ArgumentNullException(nameof(device));
+            DataContext = this;
+
+            Loaded += Window_Loaded;
+            Closed += Window_Closed;
+
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+        }
+
+        public void SetDevice(Device device)
+        {
+            if (device == null) throw new ArgumentNullException(nameof(device));
+
+            try
+            {
+                if (CurrentDevice != null)
+                    CurrentDevice.PropertyChanged -= CurrentDevice_PropertyChanged;
+            }
+            catch
+            {
+            }
+
+            CurrentDevice = device;
+            DataContext = this;
+
+            CurrentDevice.PropertyChanged += CurrentDevice_PropertyChanged;
+
+            _ = RunSerializedAsync(async () =>
+            {
+                await SyncFromAgentAndApplyAsync("SetDevice");
+            });
+        }
+
+        private async void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            Debug.WriteLine(
+                $"[DeviceWindow] Loaded. " +
+                $"Device={CurrentDevice.Name}, " +
+                $"Agent={CurrentDevice.AgentHost}:{CurrentDevice.AgentStatusPort}, " +
+                $"state={CurrentDevice.StreamState}, " +
+                $"url={CurrentDevice.RtspUrl}");
+
+            StartStatusTimer();
+
+            await RunSerializedAsync(async () =>
+            {
+                await SyncFromAgentAndApplyAsync("Window_Loaded");
+            });
+        }
+
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            _isClosed = true;
+
+            try
+            {
+                CurrentDevice.PropertyChanged -= CurrentDevice_PropertyChanged;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                _statusTimer?.Stop();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                _retryTimer?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _retryTimer = null;
+
+            try
+            {
+                _runningDebounceTimer?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _runningDebounceTimer = null;
+
+            StopMirror();
+
+            try
+            {
+                _syncLock.Dispose();
+            }
+            catch
+            {
+            }
+        }
+
+        private void StartStatusTimer()
+        {
+            if (_statusTimer != null)
+                return;
+
+            _statusTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(StatusPollSeconds)
+            };
+
+            _statusTimer.Tick += async (_, __) =>
+            {
+                if (_isClosed) return;
+
+                await RunSerializedAsync(async () =>
+                {
+                    await SyncFromAgentAndApplyAsync("timer");
+                });
+            };
+
+            _statusTimer.Start();
+        }
+
+        private async void CurrentDevice_PropertyChanged(
+            object sender,
+            PropertyChangedEventArgs e)
+        {
+            if (_isClosed || _suppressDeviceEvents)
+                return;
+
+            if (e.PropertyName == nameof(Device.StreamState) ||
+                e.PropertyName == nameof(Device.RtspUrl) ||
+                e.PropertyName == nameof(Device.AgentHost) ||
+                e.PropertyName == nameof(Device.AgentStatusPort))
+            {
+                await RunSerializedAsync(async () =>
+                {
+                    await ApplyCurrentDeviceStateAsync($"PropertyChanged:{e.PropertyName}");
+                });
+            }
+        }
+
+        private async Task RunSerializedAsync(Func<Task> action)
+        {
+            if (_isClosed) return;
+
+            var entered = false;
+
+            try
+            {
+                entered = await _syncLock.WaitAsync(0);
+                if (!entered)
+                    return;
+
+                await action();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DeviceWindow] serialized action failed: {ex}");
+            }
+            finally
+            {
+                if (entered)
+                    _syncLock.Release();
+            }
+        }
+
+        private async Task SyncFromAgentAndApplyAsync(string reason)
+        {
+            if (_isClosed) return;
+
+            if (string.IsNullOrWhiteSpace(CurrentDevice.AgentHost))
+            {
+                await ApplyCurrentDeviceStateAsync($"{reason}:no-agent");
+                return;
+            }
+
+            var port = CurrentDevice.AgentStatusPort > 0
+                ? CurrentDevice.AgentStatusPort
+                : 18080;
+
+            QuestAgentInfo status = null;
+
+            try
+            {
+                status = await AgentApi.GetStatusFastAsync(
+                    CurrentDevice.AgentHost,
+                    port);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DeviceWindow] status poll failed: {ex.Message}");
+            }
+
+            if (status != null)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    _suppressDeviceEvents = true;
+
+                    try
+                    {
+                        if (!string.IsNullOrWhiteSpace(status.RtspUrl))
+                            CurrentDevice.RtspUrl = status.RtspUrl;
+
+                        if (!string.IsNullOrWhiteSpace(status.StreamState))
+                            CurrentDevice.StreamState = status.StreamState;
+
+                        if (status.Battery >= 0)
+                            CurrentDevice.BatteryLevel = status.Battery;
+
+                        CurrentDevice.IsCharging = status.IsCharging;
+
+                        if (!string.IsNullOrWhiteSpace(status.ChargingStatus))
+                            CurrentDevice.ChargingStatus = status.ChargingStatus;
+
+                        if (!string.IsNullOrWhiteSpace(status.DeviceName))
+                            CurrentDevice.Name = status.DeviceName.Trim();
+                    }
+                    finally
+                    {
+                        _suppressDeviceEvents = false;
+                    }
+                });
+            }
+
+            await ApplyCurrentDeviceStateAsync(reason);
+        }
+
+        private async Task ApplyCurrentDeviceStateAsync(string reason)
+        {
+            if (_isClosed) return;
+
+            var state = CurrentDevice.StreamState?.Trim().ToUpperInvariant();
+
+            switch (state)
+            {
+                case "RUNNING":
+                    if (string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl))
+                        return;
+
+                    if (_errorCount > 3)
+                    {
+                        _errorCount = 0;
+                        _forceSoftwareDecode = false;
+                    }
+
+                    ScheduleRunningDebounce(CurrentDevice.RtspUrl, reason);
+                    break;
+
+                case "STARTING":
+                case "WAITING_PERMISSION":
+                    // 준비 중: 디바운스 타이머도 취소합니다.
+                    CancelRunningDebounce();
+                    StopMirror();
+                    SetWindowStatus("화면공유 준비 중");
+                    break;
+
+                case "STOPPED":
+                case "IDLE":
+                    CancelRunningDebounce();
+                    StopMirror();
+                    SetWindowStatus("화면공유 중지됨");
+                    break;
+
+                case "ERROR":
+                case "FROZEN":
+                    CancelRunningDebounce();
+                    StopMirror();
+                    SetWindowStatus($"화면공유 상태: {state}");
+                    break;
+
+                default:
+                    // 상태가 비어 있어도 RTSP URL이 있고, 이미 재생 중이 아니면 한 번 시도합니다.
+                    if (!string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl) &&
+                        (MediaPlayer == null || !MediaPlayer.IsPlaying))
+                    {
+                        ScheduleRunningDebounce(CurrentDevice.RtspUrl, $"unknown_state:{reason}");
+                    }
+                    break;
+            }
+        }
+
+        private async Task StartRtspMirrorAsync(
+            bool forceRestart,
+            string reason)
+        {
+            if (_isClosed) return;
+
+            if (string.IsNullOrWhiteSpace(CurrentDevice.RtspUrl))
+            {
+                Debug.WriteLine("[DeviceWindow] Start skipped: RtspUrl empty");
+                return;
+            }
+
+            if (!forceRestart &&
+                _lastPlayedUrl == CurrentDevice.RtspUrl &&
+                MediaPlayer != null &&
+                MediaPlayer.IsPlaying)
+            {
+                Debug.WriteLine($"[DeviceWindow] Already playing. url={CurrentDevice.RtspUrl}");
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            if ((now - _lastReconnectUtc).TotalMilliseconds < MinReconnectIntervalMs)
+            {
+                Debug.WriteLine("[DeviceWindow] Reconnect skipped by cooldown");
+                return;
+            }
+
+            _lastReconnectUtc = now;
+
+            Debug.WriteLine(
+                $"[DeviceWindow] Start RTSP. reason={reason}, " +
+                $"url={CurrentDevice.RtspUrl}, swDecode={_forceSoftwareDecode}");
+
+            StopMirror();
+
+            // VideoView/MediaPlayer 표면 정리 시간
+            await Task.Delay(250);
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (_isClosed) return;
+
+                try
+                {
+                    MediaPlayer?.Dispose();
+
+                    MediaPlayer = new MediaPlayer(_rtspLibVlc)
+                    {
+                        EnableHardwareDecoding = !_forceSoftwareDecode,
+                        Mute = true
+                    };
+
+                    AttachMediaPlayerEvents(MediaPlayer);
+
+                    RtspVideoView.MediaPlayer = MediaPlayer;
+
+                    _media?.Dispose();
+                    _media = new Media(
+                        _rtspLibVlc,
+                        CurrentDevice.RtspUrl,
+                        FromType.FromLocation);
+
+                    AddPersonalQualityOptions(_media);
+
+                    MediaPlayer.Play(_media);
+
+                    _lastPlayedUrl      = CurrentDevice.RtspUrl;
+                    _connectStartedUtc  = DateTime.UtcNow;
+
+                    SetWindowStatus(
+                        _forceSoftwareDecode
+                            ? "개인 화면 재생 중 - SW 디코딩"
+                            : "개인 화면 재생 중 - 고화질");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[DeviceWindow] RTSP start failed: {ex}");
+                    SetWindowStatus("RTSP 시작 실패");
+                    ScheduleRetry("start_failed");
+                }
+            });
+        }
+
+        private void AttachMediaPlayerEvents(MediaPlayer player)
+        {
+            player.Playing += (_, __) =>
+            {
+                _errorCount = 0;
+
+                Dispatcher.InvokeAsync(() =>
+                {
+                    SetWindowStatus(
+                        _forceSoftwareDecode
+                            ? "개인 화면 재생 중 - SW 디코딩"
+                            : "개인 화면 재생 중 - 고화질");
+                });
+            };
+
+            player.Buffering += (_, e) => { };
+
+            player.Paused += (_, __) => { };
+
+            player.Stopped += (_, __) => { };
+
+            player.EncounteredError += (_, __) =>
+            {
+                if (IsInStartupNoiseWindow())
+                    return;
+
+                ScheduleRetry("vlc_error");
+            };
+
+            player.EndReached += (_, __) =>
+            {
+                if (IsInStartupNoiseWindow())
+                    return;
+
+                ScheduleRetry("end_reached");
+            };
+        }
+
+        private void AddPersonalQualityOptions(Media media)
+        {
+            // 개인 창은 한 기기 화면이므로 타일보다 화질 우선.
+            // 단, 너무 낮은 캐시값은 검은 화면/첫 프레임 실패를 유발할 수 있으므로 900ms 사용.
+            media.AddOption(":rtsp-tcp");
+            media.AddOption($":network-caching={PersonalNetworkCachingMs}");
+            media.AddOption($":live-caching={PersonalLiveCachingMs}");
+            media.AddOption(":clock-jitter=0");
+            media.AddOption(":no-audio");
+
+            // 타일용 옵션인 skip-frames/drop-late-frames는 개인 창에서는 넣지 않습니다.
+            // 화질 우선이기 때문입니다.
+
+            if (_forceSoftwareDecode)
+            {
+                media.AddOption(":avcodec-hw=none");
+            }
+        }
+
+        // ─ RUNNING 디바운스 ──────────────────────────────────────────────
+        // RUNNING 상태가 감지됐을 때 즉시 RTSP를 붙이지 않고,
+        // RunningDebounceMs 만큼 기다린 뒤에도 RUNNING이면 그때 연결합니다.
+        // 이렇게 하면 STARTING → RUNNING 전환 직후 RTSP 서버 준비 전에 붙는 현상을 방지합니다.
+        private void ScheduleRunningDebounce(string url, string reason)
+        {
+            _pendingRunningUrl = url;
+
+            _runningDebounceTimer?.Dispose();
+            _runningDebounceTimer = new System.Threading.Timer(_ =>
+            {
+                _runningDebounceTimer?.Dispose();
+                _runningDebounceTimer = null;
+
+                var app = System.Windows.Application.Current;
+                if (app is null || _isClosed) return;
+
+                app.Dispatcher.InvokeAsync(async () =>
+                {
+                    if (_isClosed) return;
+
+                    // 디바운스가 끝난 시점에도 URL이 동일하고 RUNNING인지 확인
+                    var state = CurrentDevice.StreamState?.Trim().ToUpperInvariant();
+                    if (state != "RUNNING" || CurrentDevice.RtspUrl != _pendingRunningUrl)
+                    {
+                        Debug.WriteLine(
+                            $"[DeviceWindow] RunningDebounce cancelled. " +
+                            $"state={state} url={CurrentDevice.RtspUrl}");
+                        return;
+                    }
+
+                    await RunSerializedAsync(async () =>
+                    {
+                        await StartRtspMirrorAsync(
+                            forceRestart: false,
+                            reason: $"debounced_RUNNING:{reason}");
+                    });
+                });
+            }, null, TimeSpan.FromMilliseconds(RunningDebounceMs), Timeout.InfiniteTimeSpan);
+
+            Debug.WriteLine(
+                $"[DeviceWindow] RUNNING 디바운스 시작. url={url}, delay={RunningDebounceMs}ms");
+        }
+
+        private void CancelRunningDebounce()
+        {
+            _runningDebounceTimer?.Dispose();
+            _runningDebounceTimer = null;
+            _pendingRunningUrl    = null;
+        }
+
+        // ─ 초기 노이즈 구간 판단 ─────────────────────────────────────────
+        // Play() 호출 후 StartupNoiseWindowSeconds 이내이면 true를 반환합니다.
+        private bool IsInStartupNoiseWindow()
+        {
+            if (_connectStartedUtc == DateTime.MinValue) return false;
+            return (DateTime.UtcNow - _connectStartedUtc).TotalSeconds < StartupNoiseWindowSeconds;
+        }
+
+        private void ScheduleRetry(string reason)
+        {
+            if (_isClosed) return;
+
+            _retryTimer?.Dispose();
+
+            _errorCount++;
+
+            if (_errorCount >= 2)
+            {
+                // 반복 검은/흰 화면 또는 GPU 디코딩 표면 문제 fallback
+                _forceSoftwareDecode = true;
+            }
+
+            if (_errorCount > 3)
+            {
+                Debug.WriteLine($"[DeviceWindow] Retry stopped. max error count reached. reason={reason}");
+                SetWindowStatus("재연결 실패 - 수동 새로고침 필요");
+                return;
+            }
+
+            var delaySec = _errorCount switch
+            {
+                1 => 4,
+                2 => 8,
+                _ => 15
+            };
+
+            Debug.WriteLine(
+                $"[DeviceWindow] Retry scheduled. reason={reason}, " +
+                $"errorCount={_errorCount}, delay={delaySec}s, swDecode={_forceSoftwareDecode}");
+
+            // 중요:
+            // 개인 창의 VLC 문제 때문에 Android CaptureService를 재시작하지 않습니다.
+            // Android 송출은 MainWindow/AgentService 정책에 맡깁니다.
+            _retryTimer = new System.Threading.Timer(_ =>
+            {
+                _retryTimer?.Dispose();
+                _retryTimer = null;
+
+                var app = System.Windows.Application.Current;
+                if (app is null) return;
+
+                app.Dispatcher.InvokeAsync(async () =>
+                {
+                    await RunSerializedAsync(async () =>
+                    {
+                        await SyncFromAgentAndApplyAsync($"retry:{reason}");
+                    });
+                });
+            }, null, TimeSpan.FromSeconds(delaySec), Timeout.InfiniteTimeSpan);
+        }
+
+        private void StopMirror()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(StopMirror);
+                return;
+            }
+
+            try
+            {
+                _retryTimer?.Dispose();
+                _retryTimer = null;
+
+                if (MediaPlayer != null)
+                {
+                    try
+                    {
+                        MediaPlayer.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[DeviceWindow] MediaPlayer.Stop failed: {ex.Message}");
+                    }
+                }
+
+                if (RtspVideoView != null)
+                    RtspVideoView.MediaPlayer = null;
+
+                try
+                {
+                    _media?.Dispose();
+                }
+                catch
+                {
+                }
+
+                _media = null;
+
+                try
+                {
+                    MediaPlayer?.Dispose();
+                }
+                catch
+                {
+                }
+
+                MediaPlayer = null;
+
+                _lastPlayedUrl = null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DeviceWindow] StopMirror failed: {ex}");
+            }
+        }
+
+        private void SetWindowStatus(string text)
+        {
+            try
+            {
+                Title = $"{CurrentDevice?.Name ?? "Device"} - {text}";
+                Debug.WriteLine($"[DeviceWindow] Status: {text}");
+            }
+            catch
+            {
+            }
+        }
+
+        private async void RefreshTile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isRefreshing)
+            {
+                MessageBox.Show("이미 새로고침 중입니다.");
+                return;
+            }
+
+            _isRefreshing = true;
+
+            try
+            {
+                _errorCount = 0;
+
+                // 수동 새로고침은 우선 WPF 개인창 플레이어만 재생성합니다.
+                // Android CaptureService 재시작은 전체 송출에 영향을 주므로 여기서 하지 않습니다.
+                await RunSerializedAsync(async () =>
+                {
+                    await SyncFromAgentAndApplyAsync("manual_refresh_before_restart");
+
+                    if (string.Equals(
+                            CurrentDevice.StreamState,
+                            "RUNNING",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        await StartRtspMirrorAsync(
+                            forceRestart: true,
+                            reason: "manual_refresh");
+                    }
+                    else
+                    {
+                        Debug.WriteLine(
+                            $"[DeviceWindow] Manual refresh skipped playback. " +
+                            $"state={CurrentDevice.StreamState}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"새로고침 실패:\n{ex.Message}",
+                    "오류",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                _isRefreshing = false;
+            }
+        }
+
+        private void StopAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            IsEnabled = false;
+
+            Debug.WriteLine("디바이스 앱 중지 요청");
+
+            _mainWindow.StopDeviceApp(
+                CurrentDevice,
+                () => IsEnabled = true);
+        }
+
+        private void StartAppBtn_Click(object sender, RoutedEventArgs e)
+        {
+            PlayClickSound();
+
+            IsEnabled = false;
+
+            if (sender is Button button &&
+                int.TryParse(button.Tag as string, out var index))
+            {
+                _mainWindow.StartApp(
+                    CurrentDevice,
+                    index,
+                    () => IsEnabled = true);
+            }
+            else
+            {
+                IsEnabled = true;
+            }
+        }
+
+        private static void PlayClickSound()
+        {
+            try
+            {
+                System.Media.SystemSounds.Beep.Play();
+            }
+            catch
+            {
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void OnPropertyChanged(string name)
+        {
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(name));
+        }
+    }
+}

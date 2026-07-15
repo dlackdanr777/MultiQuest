@@ -37,6 +37,12 @@ namespace MultiQuest_Management
             Timeout = TimeSpan.FromMilliseconds(2500)
         };
 
+        // JSON 역직렬화 옵션: 정적 싱글턴으로 유지 (JIT/GC 비용 방지)
+        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
         /// <summary>
         /// Agent 상태 조회 (배터리, 스트림 상태 등)
         /// </summary>
@@ -47,16 +53,9 @@ namespace MultiQuest_Management
                 string url = $"http://{host}:{port}/status";
                 string json = await _http.GetStringAsync(url);
 
-                // 디버그: Agent 응답 로그
                 System.Diagnostics.Debug.WriteLine($"[AgentApi] Status from {host}:{port}");
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] JSON: {json}");
 
-                var info = JsonSerializer.Deserialize<QuestAgentInfo>(
-                    json,
-                    new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
 
                 // deviceName이 비어있거나 공백만 있으면 null로 처리
                 if (!string.IsNullOrWhiteSpace(info?.DeviceName))
@@ -88,9 +87,7 @@ namespace MultiQuest_Management
             {
                 string url = $"http://{host}:{port}/status";
                 string json = await _httpFast.GetStringAsync(url);
-                var info = JsonSerializer.Deserialize<QuestAgentInfo>(
-                    json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
                 if (!string.IsNullOrWhiteSpace(info?.DeviceName))
                     info.DeviceName = info.DeviceName.Trim();
                 else if (info != null)

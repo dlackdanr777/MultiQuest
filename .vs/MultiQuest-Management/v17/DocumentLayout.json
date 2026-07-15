@@ -3,6 +3,18 @@
   "WorkspaceRootPath": "F:\\WPF\\MultiQuest\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -11,16 +23,8 @@
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\updatewindow.xaml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\mainwindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\devicewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtsptileviewmodel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\updatewindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -36,10 +40,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\rtspqualitymanager.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|solutionrelative:multiquest-management\\agentapi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{64180BA3-18B6-4274-AE9A-DEF151E99085}|MultiQuest-Management\\MultiQuest-Management.csproj|f:\\wpf\\multiquest\\multiquest-management\\rtspmirrorwindow.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -96,7 +96,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 12,
+          "SelectedChildIndex": 3,
           "Children": [
             {
               "$type": "Document",
@@ -110,7 +110,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 8,
               "Title": "RtspTileViewModel.cs",
               "DocumentMoniker": "C:\\Users\\muks\\AppData\\Local\\SourceServer\\65fbcba09326e30ce19657fde8ad70026083ffff07e9a27f1d0b32c2fee02a7a\\MultiQuest-Management\\RtspTileViewModel.cs",
               "ToolTip": "C:\\Users\\muks\\AppData\\Local\\SourceServer\\65fbcba09326e30ce19657fde8ad70026083ffff07e9a27f1d0b32c2fee02a7a\\MultiQuest-Management\\RtspTileViewModel.cs",
@@ -120,7 +120,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 9,
               "Title": "RtspQualityManager.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspQualityManager.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspQualityManager.cs",
@@ -132,13 +132,13 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 0,
               "Title": "AgentApi.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\AgentApi.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\AgentApi.cs",
               "RelativeToolTip": "MultiQuest-Management\\AgentApi.cs",
-              "ViewState": "AgIAACMAAAAAAAAAAIBJwEsCAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAACECAAAAAAAAAAAcwDsCAABWAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-06-25T07:29:37.444Z",
               "EditorCaption": ""
@@ -151,7 +151,7 @@
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\RtspMirrorWindow.xaml.cs",
-              "ViewState": "AgIAABwAAAAAAAAAAAAAwGAAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAACkAAAAAAAAAAIBJwGIAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-06-25T06:37:42.894Z"
             },
@@ -169,13 +169,13 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 1,
               "Title": "RtspTileViewModel.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\RtspTileViewModel.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\RtspTileViewModel.cs",
               "RelativeToolTip": "MultiQuest-Management\\RtspTileViewModel.cs",
-              "ViewState": "AgIAAAIAAAAAAAAAAAAAwHwCAAAwAAAAAAAAAA==",
+              "ViewState": "AgIAADkCAAAAAAAAAAAAAJ0BAAAkAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2026-06-25T06:37:05.694Z"
             },
@@ -188,12 +188,11 @@
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml",
               "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2026-06-25T04:55:59.034Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-06-25T04:55:59.034Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 7,
               "Title": "UpdateService.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateService.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateService.cs",
@@ -205,7 +204,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 6,
               "Title": "UpdateWindow.xaml.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateWindow.xaml.cs",
@@ -217,7 +216,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 4,
               "Title": "UpdateWindow.xaml",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\UpdateWindow.xaml",
               "RelativeDocumentMoniker": "MultiQuest-Management\\UpdateWindow.xaml",
@@ -225,8 +224,7 @@
               "RelativeToolTip": "MultiQuest-Management\\UpdateWindow.xaml",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAEUAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2026-06-07T01:51:13.54Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-06-07T01:51:13.54Z"
             },
             {
               "$type": "Document",
@@ -237,21 +235,19 @@
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\App.xaml",
               "RelativeToolTip": "MultiQuest-Management\\App.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2026-06-07T01:35:41.813Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-06-07T01:35:41.813Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 3,
               "Title": "MainWindow.xaml.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\MainWindow.xaml.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\MainWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\MainWindow.xaml.cs",
-              "ViewState": "AgIAAE4EAAAAAAAAAIAwwE0EAAAiAAAAAAAAAA==",
+              "ViewState": "AgIAAFMAAAAAAAAAAABRwHMAAAAjAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-04-23T05:30:53.357Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-23T05:30:53.357Z"
             },
             {
               "$type": "Document",
@@ -275,21 +271,19 @@
               "RelativeToolTip": "MultiQuest-Management\\MultiQuest-Management.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAkwNkAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2026-04-09T08:05:48.407Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-09T08:05:48.407Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 5,
               "Title": "DeviceWindow.xaml.cs",
               "DocumentMoniker": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
               "RelativeDocumentMoniker": "MultiQuest-Management\\DeviceWindow.xaml.cs",
               "ToolTip": "F:\\WPF\\MultiQuest\\MultiQuest-Management\\DeviceWindow.xaml.cs",
               "RelativeToolTip": "MultiQuest-Management\\DeviceWindow.xaml.cs",
-              "ViewState": "AgIAAGgAAAAAAAAAAAAEwDsAAABBAAAAAAAAAA==",
+              "ViewState": "AgIAACMBAAAAAAAAAABBwDsAAABBAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-14T03:54:22.491Z",
-              "EditorCaption": ""
+              "WhenOpened": "2025-10-14T03:54:22.491Z"
             },
             {
               "$type": "Document",

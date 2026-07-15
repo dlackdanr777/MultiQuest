@@ -38,7 +38,9 @@ namespace MultiQuest_Management
                 "--no-audio",
                 "--rtsp-tcp",
                 "--network-caching=1000",
-                "--live-caching=1000"
+                "--live-caching=1000",
+                "--verbose=-1",
+                "--no-stats"
             );
 
             _qualityManager = new RtspQualityManager();

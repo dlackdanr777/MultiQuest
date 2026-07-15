@@ -27,6 +27,7 @@ namespace MultiQuest_Management
         private WpfBrush _statusBrush = WpfBrushes.LightGray;
 
         private bool _disposed;
+        private int _stopInProgress;   // 0 = idle, 1 = in-progress (Interlocked)
         private RtspQualityManager.QualityLevel _currentQuality;
 
         private int _bufferingCount;
@@ -48,6 +49,7 @@ namespace MultiQuest_Management
         private DateTime _errorAtUtc;
         private volatile int _errorCount;
         private int _timeChangedCount;
+        private long _lastVideoAliveTick;
 
         // Stability 모드는 30초, 그 외 20초
         private int FirstVideoSignalTimeoutSeconds =>
@@ -168,22 +170,18 @@ namespace MultiQuest_Management
 
                 SetStatus("재생 중", WpfBrushes.LightGreen);
                 IsPlaying = true;
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[VLC] {Agent.Host} Playing: {Agent.RtspUrl}");
             };
 
             MediaPlayer.TimeChanged += (_, __) =>
             {
+                // TimeChanged는 25~30fps로 발생 → 1초에 1번만 처리 (CPU 절감)
+                long now = Environment.TickCount64;
+                long prev = System.Threading.Interlocked.Read(ref _lastVideoAliveTick);
+                if (now - prev < 1000) return;
+                System.Threading.Interlocked.Exchange(ref _lastVideoAliveTick, now);
+
                 TouchVideoAlive();
-
-                int cnt = System.Threading.Interlocked.Increment(ref _timeChangedCount);
-
-                if (cnt <= 5)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[VLC] {Agent.Host} TimeChanged #{cnt}");
-                }
+                System.Threading.Interlocked.Increment(ref _timeChangedCount);
             };
 
             MediaPlayer.Vout += (_, e) =>
@@ -200,26 +198,17 @@ namespace MultiQuest_Management
 
                     SetStatus("재생 중", WpfBrushes.LightGreen);
                 }
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[VLC] {Agent.Host} Vout count={e.Count}");
             };
 
             MediaPlayer.Buffering += (_, e) =>
             {
-                _bufferingCount++;
+                System.Threading.Interlocked.Increment(ref _bufferingCount);
                 TouchTransportAlive();
 
                 _qualityManager.RecordBuffering(Agent.Host);
 
                 if (!IsPlaying)
                     SetStatus("버퍼링", WpfBrushes.Khaki);
-
-                if (_bufferingCount <= 5)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[VLC] {Agent.Host} Buffering #{_bufferingCount}: {e.Cache:F0}%");
-                }
             };
 
             MediaPlayer.EncounteredError += (_, __) =>
@@ -229,10 +218,6 @@ namespace MultiQuest_Management
 
                 SetStatus("재생 오류", WpfBrushes.OrangeRed);
                 IsPlaying = false;
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[VLC] {Agent.Host} EncounteredError #{_errorCount} " +
-                    $"(timeChanges={_timeChangedCount}, vout={_voutCount})");
             };
 
             MediaPlayer.Stopped += (_, __) =>
@@ -243,10 +228,6 @@ namespace MultiQuest_Management
                     SetStatus("중지됨", WpfBrushes.LightGray);
 
                 IsPlaying = false;
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[VLC] {Agent.Host} Stopped " +
-                    $"(frozen={_isFrozen}, timeChanges={_timeChangedCount}, vout={_voutCount})");
             };
 
             MediaPlayer.EndReached += (_, __) =>
@@ -255,10 +236,6 @@ namespace MultiQuest_Management
 
                 SetStatus("스트림 종료됨", WpfBrushes.Orange);
                 IsPlaying = false;
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[VLC] {Agent.Host} EndReached " +
-                    $"(timeChanges={_timeChangedCount}, vout={_voutCount})");
             };
         }
 
@@ -394,6 +371,11 @@ namespace MultiQuest_Management
 
         public void Stop()
         {
+            // Guard against concurrent Stop() calls (e.g. ForceRecreate + HardRestart racing).
+            // CompareExchange: only the first caller proceeds; others return immediately.
+            if (System.Threading.Interlocked.CompareExchange(ref _stopInProgress, 1, 0) != 0)
+                return;
+
             try
             {
                 StopHealthDetector();
@@ -408,6 +390,11 @@ namespace MultiQuest_Management
             catch
             {
                 // ignored
+            }
+            finally
+            {
+                // Reset so the next sequential Start()+Stop() cycle works normally.
+                System.Threading.Interlocked.Exchange(ref _stopInProgress, 0);
             }
         }
 
@@ -510,6 +497,9 @@ namespace MultiQuest_Management
 
         private void SetStatus(string status, WpfBrush brush)
         {
+            // 상태가 바뀌지 않으면 Dispatcher 디스패치 자체를 생략 (고빈도 이벤트 최적화)
+            if (_status == status && _statusBrush == brush) return;
+
             var app = System.Windows.Application.Current;
             if (app is null) return;
 
@@ -568,6 +558,12 @@ namespace MultiQuest_Management
             media.AddOption(":drop-late-frames");
             media.AddOption(":skip-frames");
             media.AddOption(":no-audio");
+
+            // 동시 스트림이 많은 환경에서 CPU 과부하 방지: 스트림당 디코더 스레드 수 제한
+            // Low/Minimal: 1스레드, 그 외: 2스레드 (n150 4코어에서 10스트림 × 무제한 = 포화)
+            bool lowQuality = _currentQuality is RtspQualityManager.QualityLevel.Low
+                           or RtspQualityManager.QualityLevel.Minimal;
+            media.AddOption(lowQuality ? ":avcodec-threads=1" : ":avcodec-threads=2");
 
             if (_disableHardwareDecoding)
             {

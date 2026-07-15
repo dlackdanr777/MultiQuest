@@ -1106,23 +1106,37 @@ ResizeMode="CanResize">
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
 
-                                                <!-- 왼쪽: 상태점 + 이름 -->
+                                                <!-- 왼쪽: 상태점 + 이름 + 연결 상태 텍스트 -->
                                                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                                    <Ellipse Width="8" Height="8" Margin="0,0,5,0">
-                                                        <Ellipse.Style>
-                                                            <Style TargetType="Ellipse">
-                                                                <Setter Property="Fill" Value="{StaticResource Bad}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                                                        <Setter Property="Fill" Value="{StaticResource Ok}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Ellipse.Style>
-                                                    </Ellipse>
-                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource Text}"
-                                                               FontWeight="SemiBold" FontSize="11"
-                                                               TextTrimming="CharacterEllipsis" MaxWidth="80"/>
+                                                    <!-- 상태 표시점: StatusIndicatorColor 바인딩 (초록/노란/주황/빨강) -->
+                                                    <Ellipse Width="8" Height="8" Margin="0,0,5,0"
+                                                             Fill="{Binding StatusIndicatorColor}"/>
+                                                    <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Name}" Foreground="{StaticResource Text}"
+                                                                   FontWeight="SemiBold" FontSize="11"
+                                                                   TextTrimming="CharacterEllipsis" MaxWidth="80"/>
+                                                        <!-- 연결 불안정/오프라인일 때만 표시 -->
+                                                        <TextBlock Text="{Binding ConnectionStatusText}"
+                                                                   Foreground="{Binding StatusIndicatorColor}"
+                                                                   FontSize="9" Margin="0,-1,0,0">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Status}" Value="Unstable">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Status}" Value="Checking">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                    </StackPanel>
                                                 </StackPanel>
 
                                                 <!-- 중앙: 송출 상태 표시 (StreamState 기반) -->
