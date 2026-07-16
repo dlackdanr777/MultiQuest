@@ -590,30 +590,30 @@ namespace MultiQuest_Management
             {
                 RtspOperationProfile.Stability => quality switch
                 {
-                    RtspQualityManager.QualityLevel.Ultra   => 1500,
-                    RtspQualityManager.QualityLevel.High    => 2000,
-                    RtspQualityManager.QualityLevel.Medium  => 2500,
-                    RtspQualityManager.QualityLevel.Low     => 3000,
-                    RtspQualityManager.QualityLevel.Minimal => 4000,
-                    _ => 2500
+                    RtspQualityManager.QualityLevel.Ultra   => 700,
+                    RtspQualityManager.QualityLevel.High    => 800,
+                    RtspQualityManager.QualityLevel.Medium  => 900,
+                    RtspQualityManager.QualityLevel.Low     => 1000,
+                    RtspQualityManager.QualityLevel.Minimal => 1000,
+                    _ => 800
                 },
                 RtspOperationProfile.Quality => quality switch
                 {
-                    RtspQualityManager.QualityLevel.Ultra   => 700,
-                    RtspQualityManager.QualityLevel.High    => 900,
-                    RtspQualityManager.QualityLevel.Medium  => 1200,
-                    RtspQualityManager.QualityLevel.Low     => 1500,
-                    RtspQualityManager.QualityLevel.Minimal => 2000,
-                    _ => 1000
+                    RtspQualityManager.QualityLevel.Ultra   => 500,
+                    RtspQualityManager.QualityLevel.High    => 600,
+                    RtspQualityManager.QualityLevel.Medium  => 700,
+                    RtspQualityManager.QualityLevel.Low     => 800,
+                    RtspQualityManager.QualityLevel.Minimal => 900,
+                    _ => 600
                 },
                 _ => quality switch  // Balanced
                 {
-                    RtspQualityManager.QualityLevel.Ultra   => 1000,
-                    RtspQualityManager.QualityLevel.High    => 1000,
-                    RtspQualityManager.QualityLevel.Medium  => 1200,
-                    RtspQualityManager.QualityLevel.Low     => 1500,
-                    RtspQualityManager.QualityLevel.Minimal => 2000,
-                    _ => 1000
+                    RtspQualityManager.QualityLevel.Ultra   => 600,
+                    RtspQualityManager.QualityLevel.High    => 700,
+                    RtspQualityManager.QualityLevel.Medium  => 800,
+                    RtspQualityManager.QualityLevel.Low     => 900,
+                    RtspQualityManager.QualityLevel.Minimal => 1000,
+                    _ => 700
                 }
             };
         }

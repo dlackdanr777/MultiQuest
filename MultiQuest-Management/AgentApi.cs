@@ -1,584 +1,1188 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MultiQuest_Management
 {
+    public sealed class AgentCommandReply
+    {
+        public bool Ok { get; set; }
+        public bool Accepted { get; set; }
+        public bool Completed { get; set; }
+        public bool Retryable { get; set; }
+        public bool Ignored { get; set; }
+        public bool ActivityShown { get; set; }
+        public bool AlreadyRunning { get; set; }
+        public bool AlreadyInProgress { get; set; }
+        public bool KeepAliveEnabled { get; set; }
+
+        public int RetryAfterMs { get; set; }
+        public int StreamGeneration { get; set; }
+
+        public string OperationId { get; set; }
+        public string State { get; set; }
+        public string Error { get; set; }
+        public string Message { get; set; }
+        public string Reason { get; set; }
+        public string PackageName { get; set; }
+
+        public HttpStatusCode? StatusCode { get; set; }
+        public bool TimedOut { get; set; }
+        public string RawResponse { get; set; }
+
+        public bool IsAcceptedSuccess =>
+            Ok &&
+            !Ignored &&
+            (Accepted || Completed);
+    }
+
+    public sealed class AgentOperationEnvelope
+    {
+        public bool Ok { get; set; }
+        public AgentOperationInfo Operation { get; set; }
+    }
+
+    public sealed class AgentOperationInfo
+    {
+        public bool Exists { get; set; }
+        public bool Accepted { get; set; }
+        public bool Completed { get; set; }
+        public bool Failed { get; set; }
+        public bool Cancelled { get; set; }
+        public bool Retryable { get; set; }
+
+        public string OperationId { get; set; }
+        public string Type { get; set; }
+        public string Target { get; set; }
+        public string Reason { get; set; }
+        public string State { get; set; }
+        public string Message { get; set; }
+
+        public long AcceptedAtMs { get; set; }
+        public long UpdatedAtMs { get; set; }
+        public long CompletedAtMs { get; set; }
+
+        public JsonElement Details { get; set; }
+
+        public bool IsTerminal =>
+            Completed ||
+            Failed ||
+            Cancelled ||
+            string.Equals(State, "COMPLETED", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(State, "FAILED", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(State, "CANCELLED", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
-    /// Quest Agent HTTP API 클라이언트
-    /// ADB 의존성을 제거하고 Agent와 직접 통신합니다.
+    /// Quest Agent HTTP API 클라이언트입니다.
+    ///
+    /// 핵심 원칙:
+    /// - 하나의 HttpClient/연결 풀을 재사용합니다.
+    /// - 요청별 타임아웃과 CancellationToken을 사용합니다.
+    /// - HTTP 2xx만으로 성공 처리하지 않고 JSON의 ok/accepted/completed를 확인합니다.
+    /// - Activity/MediaProjection 명령은 operationId로 실제 완료를 확인할 수 있습니다.
     /// </summary>
     public static class AgentApi
     {
-        // 일반 API용 (빠른 응답 기대)
-        private static readonly HttpClient _http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(3)
-        };
+        private const int DefaultPort = 18080;
 
-        // 오프라인 감지 전용 (1초 타임아웃)
-        private static readonly HttpClient _httpFast = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(1)
-        };
+        private static readonly TimeSpan StatusTimeout =
+            TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan FastStatusTimeout =
+            TimeSpan.FromMilliseconds(1_200);
+        private static readonly TimeSpan CommandTimeout =
+            TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan StopAllTimeout =
+            TimeSpan.FromSeconds(8);
+        private static readonly TimeSpan FastStopAllTimeout =
+            TimeSpan.FromSeconds(3);
 
-        // stopAllStoryWing 전용 (Agent가 내부적으로 최대 ~4.5초 처리)
-        private static readonly HttpClient _httpLong = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(15)
-        };
+#if NET5_0_OR_GREATER
+        private static readonly HttpMessageHandler Handler =
+            new SocketsHttpHandler
+            {
+                ConnectTimeout = TimeSpan.FromMilliseconds(1_500),
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+                MaxConnectionsPerServer = 16,
+                AutomaticDecompression =
+                    DecompressionMethods.GZip |
+                    DecompressionMethods.Deflate
+            };
+#else
+        private static readonly HttpMessageHandler Handler =
+            new HttpClientHandler
+            {
+                AutomaticDecompression =
+                    DecompressionMethods.GZip |
+                    DecompressionMethods.Deflate
+            };
+#endif
 
-        // 전체 기기 동시 종료용 빠른 경로 (2.5s timeout)
-        private static readonly HttpClient _httpStopFast = new HttpClient
-        {
-            Timeout = TimeSpan.FromMilliseconds(2500)
-        };
+        private static readonly HttpClient Http =
+            new HttpClient(Handler)
+            {
+                Timeout = Timeout.InfiniteTimeSpan
+            };
 
-        // JSON 역직렬화 옵션: 정적 싱글턴으로 유지 (JIT/GC 비용 방지)
-        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        };
+        private static readonly JsonSerializerOptions JsonOptions =
+            new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
 
-        /// <summary>
-        /// Agent 상태 조회 (배터리, 스트림 상태 등)
-        /// </summary>
-        public static async Task<QuestAgentInfo> GetStatusAsync(string host, int port = 18080)
+#if !NET5_0_OR_GREATER
+        static AgentApi()
         {
+            ServicePointManager.DefaultConnectionLimit = Math.Max(
+                ServicePointManager.DefaultConnectionLimit,
+                16);
+        }
+#endif
+
+        public static Task<QuestAgentInfo> GetStatusAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            return GetStatusCoreAsync(
+                host,
+                port,
+                StatusTimeout,
+                writeLog: true,
+                cancellationToken);
+        }
+
+        public static Task<QuestAgentInfo> GetStatusFastAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            return GetStatusCoreAsync(
+                host,
+                port,
+                FastStatusTimeout,
+                writeLog: false,
+                cancellationToken);
+        }
+
+        private static async Task<QuestAgentInfo> GetStatusCoreAsync(
+            string host,
+            int port,
+            TimeSpan timeout,
+            bool writeLog,
+            CancellationToken cancellationToken)
+        {
+            if (!TryBuildUri(host, port, "/status", out Uri uri))
+                return null;
+
+            using var timeoutCts =
+                CreateTimeoutToken(cancellationToken, timeout);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
             try
             {
-                string url = $"http://{host}:{port}/status";
-                string json = await _http.GetStringAsync(url);
+                using HttpResponseMessage response = await Http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeoutCts.Token).ConfigureAwait(false);
 
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] Status from {host}:{port}");
+                if (!response.IsSuccessStatusCode)
+                    return null;
 
-                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
+                string json = await response.Content
+                    .ReadAsStringAsync()
+                    .ConfigureAwait(false);
 
-                // deviceName이 비어있거나 공백만 있으면 null로 처리
-                if (!string.IsNullOrWhiteSpace(info?.DeviceName))
+                QuestAgentInfo info = JsonSerializer.Deserialize<QuestAgentInfo>(
+                    json,
+                    JsonOptions);
+
+                if (info != null)
                 {
-                    info.DeviceName = info.DeviceName.Trim();
-                }
-                else
-                {
-                    info.DeviceName = null;
+                    info.DeviceName = string.IsNullOrWhiteSpace(info.DeviceName)
+                        ? null
+                        : info.DeviceName.Trim();
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] DeviceName: '{info?.DeviceName}', Model: '{info?.Model}'");
+                if (writeLog)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AgentApi] Status {host}:{NormalizePort(port)} " +
+                        $"name='{info?.DeviceName}' model='{info?.Model}'");
+                }
 
                 return info;
+            }
+            catch (OperationCanceledException)
+            {
+                if (writeLog && !cancellationToken.IsCancellationRequested)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AgentApi] Status timeout {host}:{NormalizePort(port)}");
+                }
+                return null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] GetStatusAsync failed: {ex.Message}");
+                if (writeLog)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AgentApi] GetStatus failed: {ex.GetType().Name}: {ex.Message}");
+                }
                 return null;
             }
         }
 
-        /// <summary>
-        /// 오프라인 감지 전용 빠른 상태 조회 (1초 타임아웃, 로그 없음)
-        /// </summary>
-        public static async Task<QuestAgentInfo> GetStatusFastAsync(string host, int port = 18080)
+        public static async Task<AgentCommandReply> LaunchAppDetailedAsync(
+            string host,
+            int port,
+            string packageName,
+            string activityName = "com.unity3d.player.UnityPlayerActivity",
+            object extras = null,
+            bool forceRestart = false,
+            CancellationToken cancellationToken = default)
         {
-            try
-            {
-                string url = $"http://{host}:{port}/status";
-                string json = await _httpFast.GetStringAsync(url);
-                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
-                if (!string.IsNullOrWhiteSpace(info?.DeviceName))
-                    info.DeviceName = info.DeviceName.Trim();
-                else if (info != null)
-                    info.DeviceName = null;
-                return info;
-            }
-            catch
-            {
-                return null;
-            }
+            if (string.IsNullOrWhiteSpace(packageName))
+                return InvalidRequest("packageName is required");
+
+            return await SendCommandAsync(
+                host,
+                port,
+                "/command/launch",
+                new
+                {
+                    packageName,
+                    activityName,
+                    forceRestart,
+                    stopOthers = true,
+                    stopRetryCount = 1,
+                    stopRetryIntervalMs = 100,
+                    extras = extras ?? new { }
+                },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// 앱 실행 명령 (ADB 대체)
-        /// </summary>
         public static async Task<bool> LaunchAppAsync(
             string host,
             int port,
             string packageName,
             string activityName = "com.unity3d.player.UnityPlayerActivity",
             object extras = null,
-            bool forceRestart = false)
+            bool forceRestart = false,
+            CancellationToken cancellationToken = default)
         {
-            try
+            AgentCommandReply reply = await LaunchAppDetailedAsync(
+                host,
+                port,
+                packageName,
+                activityName,
+                extras,
+                forceRestart,
+                cancellationToken).ConfigureAwait(false);
+
+            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                if (string.IsNullOrWhiteSpace(host))
-                    return false;
-
-                if (port <= 0)
-                    port = 18080;
-
-                string url = $"http://{host}:{port}/command/launch";
-
-                var body = new
-                {
-                    packageName,
-                    activityName,
-                    forceRestart,
-                    extras = extras ?? new { }
-                };
-
-                string json = JsonSerializer.Serialize(body);
-
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-                string responseText = await response.Content.ReadAsStringAsync();
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] Launch {packageName} forceRestart={forceRestart} -> HTTP {(int)response.StatusCode}: {responseText}");
-
-                if (!response.IsSuccessStatusCode)
-                    return false;
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(responseText);
-
-                    if (doc.RootElement.TryGetProperty("ok", out var okProp))
-                        return okProp.ValueKind == JsonValueKind.True;
-                }
-                catch
-                {
-                    // 응답 파싱 실패 시 HTTP 200이면 일단 성공으로 처리
-                }
-
                 return true;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] LaunchAppAsync failed: {ex.Message}");
-                return false;
-            }
+
+            // 기존 로직: Accepted/Completed 확인
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// 앱 종료 요청 (협력 종료 방식, ADB force-stop 대체)
-        /// </summary>
+        public static async Task<AgentOperationInfo> LaunchAppAndWaitAsync(
+            string host,
+            int port,
+            string packageName,
+            string activityName = "com.unity3d.player.UnityPlayerActivity",
+            object extras = null,
+            bool forceRestart = false,
+            TimeSpan? completionTimeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await LaunchAppDetailedAsync(
+                host,
+                port,
+                packageName,
+                activityName,
+                extras,
+                forceRestart,
+                cancellationToken).ConfigureAwait(false);
+
+            return await WaitForAcceptedCommandAsync(
+                host,
+                port,
+                reply,
+                completionTimeout ?? TimeSpan.FromSeconds(15),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public static async Task<AgentCommandReply> StopAppDetailedAsync(
+            string host,
+            int port,
+            string packageName,
+            bool goHome = false,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(packageName))
+                return InvalidRequest("packageName is required");
+
+            return await SendCommandAsync(
+                host,
+                port,
+                "/command/stop",
+                new
+                {
+                    packageName,
+                    goHome,
+                    retryCount = 3,
+                    retryIntervalMs = 150,
+                    goHomeDelayMs = 250
+                },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         public static async Task<bool> StopAppAsync(
             string host,
             int port,
             string packageName,
-            bool goHome = false)
+            bool goHome = false,
+            CancellationToken cancellationToken = default)
         {
-            try
+            AgentCommandReply reply = await StopAppDetailedAsync(
+                host,
+                port,
+                packageName,
+                goHome,
+                cancellationToken).ConfigureAwait(false);
+
+            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                if (string.IsNullOrWhiteSpace(host))
-                    return false;
-
-                if (port <= 0)
-                    port = 18080;
-
-                string url = $"http://{host}:{port}/command/stop";
-
-                var body = new
-                {
-                    packageName,
-                    goHome
-                };
-
-                string json = JsonSerializer.Serialize(body);
-
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-                string responseText = await response.Content.ReadAsStringAsync();
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] Stop {packageName} -> HTTP {(int)response.StatusCode}: {responseText}");
-
-                if (!response.IsSuccessStatusCode)
-                    return false;
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(responseText);
-
-                    if (doc.RootElement.TryGetProperty("ok", out var okProp))
-                        return okProp.ValueKind == JsonValueKind.True;
-                }
-                catch
-                {
-                    // 응답 파싱 실패 시 HTTP 200이면 일단 성공 처리
-                }
-
                 return true;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] StopAppAsync failed: {ex.Message}");
-                return false;
-            }
+
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// RTSP 스트림 재시작
-        /// </summary>
-        public static async Task<bool> RestartCaptureAsync(string host, int port = 18080)
+        public static Task<AgentCommandReply> RestartCaptureDetailedAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
         {
-            try
-            {
-                string url = $"http://{host}:{port}/command/restartCapture";
-
-                var response = await _http.PostAsync(url, null);
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] RestartCaptureAsync failed: {ex.Message}");
-                return false;
-            }
+            return SendCommandAsync(
+                host,
+                port,
+                "/command/restartCapture",
+                new { },
+                CommandTimeout,
+                cancellationToken);
         }
 
-        /// <summary>
-        /// 홈 화면으로 이동
-        /// </summary>
-        public static async Task<bool> GoHomeAsync(string host, int port = 18080)
+        public static async Task<bool> RestartCaptureAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
         {
-            try
+            AgentCommandReply reply = await RestartCaptureDetailedAsync(
+                host,
+                port,
+                cancellationToken).ConfigureAwait(false);
+
+            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                if (string.IsNullOrWhiteSpace(host))
-                    return false;
-
-                if (port <= 0)
-                    port = 18080;
-
-                string url = $"http://{host}:{port}/command/home";
-
-                using var content = new StringContent(
-                    "{}",
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-                string responseText = await response.Content.ReadAsStringAsync();
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] Home -> HTTP {(int)response.StatusCode}: {responseText}");
-
-                return response.IsSuccessStatusCode;
+                return true;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] GoHomeAsync failed: {ex.Message}");
-                return false;
-            }
+
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// 실행 중인 앱에 실시간 명령 전송
-        /// 예: skip, pause, resume, next, restartLesson
-        /// </summary>
+        public static async Task<AgentOperationInfo> RestartCaptureAndWaitAsync(
+            string host,
+            int port = DefaultPort,
+            TimeSpan? completionTimeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await RestartCaptureDetailedAsync(
+                host,
+                port,
+                cancellationToken).ConfigureAwait(false);
+
+            return await WaitForAcceptedCommandAsync(
+                host,
+                port,
+                reply,
+                completionTimeout ?? TimeSpan.FromSeconds(35),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public static Task<AgentCommandReply> StartCaptureUiDetailedAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            return SendCommandAsync(
+                host,
+                port,
+                "/command/startCaptureUi",
+                new { },
+                CommandTimeout,
+                cancellationToken);
+        }
+
+        public static async Task<bool> StartCaptureUiAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await StartCaptureUiDetailedAsync(
+                host,
+                port,
+                cancellationToken).ConfigureAwait(false);
+
+            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
+            {
+                return true;
+            }
+
+            return reply.IsAcceptedSuccess;
+        }
+
+        public static async Task<AgentOperationInfo> StartCaptureUiAndWaitAsync(
+            string host,
+            int port = DefaultPort,
+            TimeSpan? completionTimeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await StartCaptureUiDetailedAsync(
+                host,
+                port,
+                cancellationToken).ConfigureAwait(false);
+
+            return await WaitForAcceptedCommandAsync(
+                host,
+                port,
+                reply,
+                completionTimeout ?? TimeSpan.FromSeconds(35),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        public static async Task<bool> GoHomeAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/home",
+                new { },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
+            {
+                return true;
+            }
+
+            return reply.IsAcceptedSuccess;
+        }
+
         public static async Task<bool> SendCommandAsync(
             string host,
             int port,
             string packageName,
             string command,
-            Dictionary<string, object> args = null)
+            Dictionary<string, object> args = null,
+            CancellationToken cancellationToken = default)
         {
-            try
+            if (string.IsNullOrWhiteSpace(packageName) ||
+                string.IsNullOrWhiteSpace(command))
             {
-                string url = $"http://{host}:{port}/command/appCommand";
+                return false;
+            }
 
-                var body = new
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/appCommand",
+                new
                 {
                     packageName,
                     command,
-                    args = args ?? new Dictionary<string, object>()
-                };
+                    payload = args ?? new Dictionary<string, object>()
+                },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
 
-                string json = JsonSerializer.Serialize(body);
-
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] SendCommandAsync failed: {ex.Message}");
-                return false;
+                return true;
             }
+
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// 화면 켜기 및 절전 방지 (키 이벤트 전송)
-        /// KEYCODE_WAKEUP = 224
-        /// keepAwake = true: 송출 중 절전 진입 방지
-        /// </summary>
-        public static async Task<bool> WakeScreenAsync(
-            string host, 
-            int port = 18080, 
-            bool keepAwake = true)
+        public static Task<AgentCommandReply> WakeScreenDetailedAsync(
+            string host,
+            int port = DefaultPort,
+            bool keepAwake = true,
+            CancellationToken cancellationToken = default)
         {
-            try
-            {
-                string url = $"http://{host}:{port}/command/wake";
-
-                var body = new
-                {
-                    keepAwake = keepAwake
-                };
-
-                string json = JsonSerializer.Serialize(body);
-
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] WakeScreenAsync failed: {ex.Message}");
-                return false;
-            }
+            return SendCommandAsync(
+                host,
+                port,
+                "/command/wake",
+                new { keepAwake },
+                CommandTimeout,
+                cancellationToken);
         }
 
-        /// <summary>
-        /// KeepAwake 활성화/비활성화 요청
-        /// Agent 앱의 절전 방지 Lock을 유지
-        /// </summary>
+        public static async Task<bool> WakeScreenAsync(
+            string host,
+            int port = DefaultPort,
+            bool keepAwake = true,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await WakeScreenDetailedAsync(
+                host,
+                port,
+                keepAwake,
+                cancellationToken).ConfigureAwait(false);
+
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
+            {
+                return true;
+            }
+
+            return reply.IsAcceptedSuccess;
+        }
+
+        public static async Task<AgentOperationInfo> WakeScreenAndWaitAsync(
+            string host,
+            int port = DefaultPort,
+            bool keepAwake = true,
+            TimeSpan? completionTimeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await WakeScreenDetailedAsync(
+                host,
+                port,
+                keepAwake,
+                cancellationToken).ConfigureAwait(false);
+
+            return await WaitForAcceptedCommandAsync(
+                host,
+                port,
+                reply,
+                completionTimeout ?? TimeSpan.FromSeconds(5),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         public static async Task<bool> KeepAwakeAsync(
             string host,
-            int port = 18080,
-            bool enabled = true)
+            int port = DefaultPort,
+            bool enabled = true,
+            CancellationToken cancellationToken = default)
         {
-            try
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/keepAwake",
+                new { enabled },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                string url = $"http://{host}:{port}/command/keepAwake";
-
-                var body = new
-                {
-                    enabled
-                };
-
-                string json = JsonSerializer.Serialize(body);
-
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-
-                return response.IsSuccessStatusCode;
+                return true;
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] KeepAwakeAsync failed: {ex.Message}");
-                return false;
-            }
+
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// KeepAwakeActivity 열기 요청
-        /// Agent 앱의 대기 화면(KeepAwakeActivity)을 표시
-        /// </summary>
         public static async Task<bool> ShowKeepAwakeAsync(
             string host,
-            int port = 18080)
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
         {
-            try
-            {
-                string url = $"http://{host}:{port}/command/showKeepAwake";
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/showKeepAwake",
+                new { },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
 
-                var response = await _http.PostAsync(url, null);
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
             {
-                System.Diagnostics.Debug.WriteLine($"[AgentApi] ShowKeepAwakeAsync failed: {ex.Message}");
-                return false;
+                return true;
             }
+
+            return reply.IsAcceptedSuccess;
         }
 
-        /// <summary>
-        /// 모든 StoryWing 앱 종료 요청.
-        /// 신규 엔드포인트(/command/stopAllStoryWing) 시도 후 404이면
-        /// fallbackPackages 목록으로 개별 StopAppAsync 폴백 실행.
-        /// </summary>
+        public static async Task<bool> HideKeepAwakeAsync(
+            string host,
+            int port = DefaultPort,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/hideKeepAwake",
+                new { },
+                CommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
+            {
+                return true;
+            }
+
+            return reply.IsAcceptedSuccess;
+        }
+
         public static async Task<bool> StopAllStoryWingAsync(
             string host,
-            int port = 18080,
+            int port = DefaultPort,
             bool goHome = true,
-            IEnumerable<string> fallbackPackages = null)
+            IEnumerable<string> fallbackPackages = null,
+            CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(host))
-                return false;
-
-            if (port <= 0)
-                port = 18080;
-
-            // ── 1단계: 신규 엔드포인트 시도 ──────────────────────────────
-            try
-            {
-                string url = $"http://{host}:{port}/command/stopAllStoryWing";
-
-                var body = new
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/stopAllStoryWing",
+                new
                 {
                     goHome,
-                    retryCount      = 3,
+                    retryCount = 3,
                     retryIntervalMs = 150,
-                    goHomeDelayMs   = 600
-                };
+                    goHomeDelayMs = 600
+                },
+                StopAllTimeout,
+                cancellationToken).ConfigureAwait(false);
 
-                string json = JsonSerializer.Serialize(body);
+            if (reply.IsAcceptedSuccess)
+                return true;
 
-                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            bool unsupported =
+                reply.StatusCode == HttpStatusCode.NotFound ||
+                reply.StatusCode == HttpStatusCode.MethodNotAllowed ||
+                reply.StatusCode == HttpStatusCode.NotImplemented;
 
-                var response = await _httpLong.PostAsync(url, content);
-                string responseText = await response.Content.ReadAsStringAsync();
+            if (!unsupported)
+                return false;
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StopAllStoryWing -> HTTP {(int)response.StatusCode}: {responseText}");
-
-                if (response.IsSuccessStatusCode)
-                    return true;
-
-                // 404 이외의 오류는 실패로 처리
-                if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
-                    return false;
-
-                System.Diagnostics.Debug.WriteLine(
-                    "[AgentApi] StopAllStoryWing: 404 → fallback to per-package stop");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StopAllStoryWing new API failed: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            // ── 2단계: 폴백 - 패키지별 개별 종료 ─────────────────────────
-            var pkgs = fallbackPackages?
+            List<string> packages = fallbackPackages?
                 .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => p.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                .ToList() ?? new List<string>();
 
-            if (pkgs != null && pkgs.Count > 0)
-            {
-                var stopTasks = pkgs.Select(pkg =>
-                    StopAppAsync(host, port, pkg, goHome: false));
+            if (packages.Count == 0)
+                return false;
 
-                await Task.WhenAll(stopTasks);
-            }
+            bool stopsOk = await StopFallbackPackagesAsync(
+                host,
+                port,
+                packages,
+                cancellationToken).ConfigureAwait(false);
 
-            if (goHome)
-                await GoHomeAsync(host, port);
+            bool homeOk = !goHome || await GoHomeAsync(
+                host,
+                port,
+                cancellationToken).ConfigureAwait(false);
 
-            // 폴백은 명령 전송 자체를 성공으로 간주
-            return true;
+            return stopsOk && homeOk;
         }
 
-        /// <summary>
-        /// 전체 기기 동시 종료용 빠른 경로.
-        /// fallbackPackages를 돌리지 않고 stopAllStoryWing만 빠르게 호출합니다.
-        /// Agent는 즉시 200 OK를 반환하고 실제 종료는 내부 백그라운드에서 처리합니다.
-        /// </summary>
         public static async Task<bool> StopAllStoryWingFastAsync(
             string host,
-            int port = 18080,
+            int port = DefaultPort,
             bool goHome = true,
             int retryCount = 2,
             int retryIntervalMs = 100,
-            int goHomeDelayMs = 250)
+            int goHomeDelayMs = 250,
+            CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(host))
-                return false;
-
-            if (port <= 0)
-                port = 18080;
-
-            try
-            {
-                string url = $"http://{host}:{port}/command/stopAllStoryWing";
-
-                var body = new
+            AgentCommandReply reply = await SendCommandAsync(
+                host,
+                port,
+                "/command/stopAllStoryWing",
+                new
                 {
                     goHome,
                     retryCount,
                     retryIntervalMs,
                     goHomeDelayMs,
                     fast = true
+                },
+                FastStopAllTimeout,
+                cancellationToken).ConfigureAwait(false);
+
+            // fast 모드에서는 HTTP 2xx 응답 자체를 성공으로 처리
+            // Agent가 명령을 접수했으면 백그라운드에서 종료 처리됨
+            if (reply.StatusCode.HasValue && 
+                IsSuccessStatusCode(reply.StatusCode.Value))
+            {
+                return true;
+            }
+
+            // 기존 로직: Accepted/Completed 확인
+            return reply.IsAcceptedSuccess;
+        }
+
+        public static async Task<AgentOperationInfo> WaitForOperationAsync(
+            string host,
+            int port,
+            string operationId,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(operationId))
+            {
+                return FailureOperation(
+                    null,
+                    "INVALID_OPERATION_ID",
+                    "operationId is required",
+                    retryable: false);
+            }
+
+            if (!TryBuildUri(
+                host,
+                port,
+                $"/operations/{Uri.EscapeDataString(operationId)}",
+                out Uri uri))
+            {
+                return FailureOperation(
+                    operationId,
+                    "INVALID_ENDPOINT",
+                    "Invalid host or port",
+                    retryable: false);
+            }
+
+            using var timeoutCts =
+                CreateTimeoutToken(cancellationToken, timeout);
+
+            while (!timeoutCts.IsCancellationRequested)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
+                try
+                {
+                    using HttpResponseMessage response = await Http.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        timeoutCts.Token).ConfigureAwait(false);
+
+                    string json = await response.Content
+                        .ReadAsStringAsync()
+                        .ConfigureAwait(false);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        AgentOperationEnvelope envelope =
+                            JsonSerializer.Deserialize<AgentOperationEnvelope>(
+                                json,
+                                JsonOptions);
+
+                        AgentOperationInfo operation = envelope?.Operation;
+                        if (operation?.IsTerminal == true)
+                            return operation;
+                    }
+                    else if (response.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        return FailureOperation(
+                            operationId,
+                            "NOT_FOUND",
+                            "Operation was not found; the Agent process may have restarted",
+                            retryable: true);
+                    }
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (HttpRequestException)
+                {
+                    // 일시적인 Wi-Fi 손실은 제한 시간 안에서 다시 조회합니다.
+                }
+                catch (JsonException ex)
+                {
+                    return FailureOperation(
+                        operationId,
+                        "PROTOCOL_ERROR",
+                        ex.Message,
+                        retryable: false);
+                }
+
+                try
+                {
+                    await Task.Delay(300, timeoutCts.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+
+            return FailureOperation(
+                operationId,
+                "TIMEOUT",
+                $"Operation did not complete within {timeout.TotalSeconds:0.#} seconds",
+                retryable: true);
+        }
+
+        private static async Task<AgentOperationInfo> WaitForAcceptedCommandAsync(
+            string host,
+            int port,
+            AgentCommandReply reply,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            if (reply == null)
+            {
+                return FailureOperation(
+                    operationId: null,
+                    state: "CLIENT_ERROR",
+                    message: "Agent command returned no response",
+                    retryable: true);
+            }
+
+            if (!reply.IsAcceptedSuccess)
+            {
+                return FailureOperation(
+                    operationId: reply.OperationId,
+                    state: reply.TimedOut ? "TIMEOUT" : "REJECTED",
+                    message: reply.Message ?? reply.Error ?? "Agent command rejected",
+                    retryable: reply.Retryable);
+            }
+
+            if (reply.Completed)
+            {
+                return new AgentOperationInfo
+                {
+                    Exists = true,
+                    Accepted = true,
+                    Completed = true,
+                    State = "COMPLETED",
+                    OperationId = reply.OperationId,
+                    Message = reply.Message
                 };
+            }
 
-                string json = JsonSerializer.Serialize(body);
+            if (string.IsNullOrWhiteSpace(reply.OperationId))
+            {
+                return FailureOperation(
+                    null,
+                    "PROTOCOL_ERROR",
+                    "Agent accepted the command without an operationId",
+                    retryable: false);
+            }
 
-                using var content = new StringContent(
-                    json,
-                    Encoding.UTF8,
-                    "application/json");
+            return await WaitForOperationAsync(
+                host,
+                port,
+                reply.OperationId,
+                timeout,
+                cancellationToken).ConfigureAwait(false);
+        }
 
-                var response = await _httpStopFast.PostAsync(url, content);
+        private static async Task<bool> StopFallbackPackagesAsync(
+            string host,
+            int port,
+            IReadOnlyCollection<string> packages,
+            CancellationToken cancellationToken)
+        {
+            using var gate = new SemaphoreSlim(4, 4);
+
+            Task<bool>[] tasks = packages.Select(async packageName =>
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await StopAppAsync(
+                        host,
+                        port,
+                        packageName,
+                        goHome: false,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }).ToArray();
+
+            bool[] results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            return results.All(x => x);
+        }
+
+        private static async Task<AgentCommandReply> SendCommandAsync(
+            string host,
+            int port,
+            string path,
+            object body,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            if (!TryBuildUri(host, port, path, out Uri uri))
+                return InvalidRequest("Invalid host or port");
+
+            using var timeoutCts =
+                CreateTimeoutToken(cancellationToken, timeout);
+            using var request = new HttpRequestMessage(HttpMethod.Post, uri);
+
+            string json = JsonSerializer.Serialize(body ?? new { }, JsonOptions);
+            request.Content = new StringContent(
+                json,
+                Encoding.UTF8,
+                "application/json");
+
+            try
+            {
+                using HttpResponseMessage response = await Http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeoutCts.Token).ConfigureAwait(false);
+
+                string responseText = await response.Content
+                    .ReadAsStringAsync()
+                    .ConfigureAwait(false);
+
+                AgentCommandReply reply = ParseCommandReply(
+                    responseText,
+                    response.StatusCode);
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StopAllStoryWingFast {host}:{port} -> {(int)response.StatusCode}");
+                    $"[AgentApi] POST {host}:{NormalizePort(port)}{path} " +
+                    $"-> {(int)response.StatusCode} {responseText}");
 
-                return response.IsSuccessStatusCode;
+                return reply;
+            }
+            catch (OperationCanceledException)
+                when (!cancellationToken.IsCancellationRequested)
+            {
+                return new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = true,
+                    TimedOut = true,
+                    Error = "timeout",
+                    Message = $"Request timed out after {timeout.TotalMilliseconds:0} ms"
+                };
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                return new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = true,
+                    Error = "network_error",
+                    Message = ex.Message
+                };
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StopAllStoryWingFastAsync failed: {host}:{port} {ex.Message}");
+                return new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = false,
+                    Error = "client_exception",
+                    Message = ex.Message
+                };
+            }
+        }
+
+        private static AgentCommandReply ParseCommandReply(
+            string responseText,
+            HttpStatusCode statusCode)
+        {
+            AgentCommandReply reply;
+
+            if (statusCode == HttpStatusCode.NoContent)
+            {
+                reply = new AgentCommandReply
+                {
+                    Ok = true,
+                    Accepted = true,
+                    Completed = true
+                };
+            }
+            else
+            {
+                try
+                {
+                    reply = JsonSerializer.Deserialize<AgentCommandReply>(
+                        responseText,
+                        JsonOptions);
+                }
+                catch (JsonException)
+                {
+                    reply = null;
+                }
+
+                if (reply == null)
+                {
+                    reply = new AgentCommandReply
+                    {
+                        Ok = false,
+                        Accepted = false,
+                        Completed = false,
+                        Retryable = false,
+                        Error = "invalid_response",
+                        Message = "Agent response was not valid JSON"
+                    };
+                }
+            }
+
+            reply.StatusCode = statusCode;
+            reply.RawResponse = responseText;
+
+            if (!IsSuccessStatusCode(statusCode))
+            {
+                reply.Ok = false;
+            }
+
+            return reply;
+        }
+
+        private static bool TryBuildUri(
+            string host,
+            int port,
+            string path,
+            out Uri uri)
+        {
+            uri = null;
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            int normalizedPort = NormalizePort(port);
+            if (normalizedPort < 1 || normalizedPort > 65535)
+                return false;
+
+            try
+            {
+                string trimmedHost = host.Trim();
+                if (trimmedHost.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    trimmedHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    var existing = new Uri(trimmedHost);
+                    trimmedHost = existing.Host;
+                }
+
+                var builder = new UriBuilder(
+                    Uri.UriSchemeHttp,
+                    trimmedHost,
+                    normalizedPort,
+                    path.StartsWith("/", StringComparison.Ordinal)
+                        ? path
+                        : "/" + path);
+
+                uri = builder.Uri;
+                return true;
+            }
+            catch
+            {
                 return false;
             }
         }
 
-        /// <summary>
-        /// Android CapturePermissionActivity UI
-        /// restartCapture와 달리 정상 송출 중인 캡처를 종료하지 않습니다.
-        /// STOPPED/IDLE이 15초 이상 지속될 때 Android 와치독 fallback으로 사용합니다.
-        /// </summary>
-        public static async Task<bool> StartCaptureUiAsync(string host, int port = 18080)
+        private static int NormalizePort(int port) =>
+            port > 0 ? port : DefaultPort;
+
+        private static CancellationTokenSource CreateTimeoutToken(
+            CancellationToken cancellationToken,
+            TimeSpan timeout)
         {
-            try
+            CancellationTokenSource cts =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            cts.CancelAfter(timeout);
+            return cts;
+        }
+
+        private static AgentOperationInfo FailureOperation(
+            string operationId,
+            string state,
+            string message,
+            bool retryable)
+        {
+            return new AgentOperationInfo
             {
-                string url = $"http://{host}:{port}/command/startCaptureUi";
+                Exists = !string.IsNullOrWhiteSpace(operationId),
+                Accepted = false,
+                Completed = false,
+                Failed = true,
+                Retryable = retryable,
+                OperationId = operationId,
+                State = state,
+                Message = message
+            };
+        }
 
-                using var content = new StringContent(
-                    "{}",
-                    Encoding.UTF8,
-                    "application/json");
-
-                var response = await _http.PostAsync(url, content);
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StartCaptureUi {host}:{port} → {(int)response.StatusCode}");
-
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
+        private static AgentCommandReply InvalidRequest(string message)
+        {
+            return new AgentCommandReply
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[AgentApi] StartCaptureUiAsync failed: {ex.Message}");
-                return false;
-            }
+                Ok = false,
+                Accepted = false,
+                Completed = false,
+                Retryable = false,
+                Error = "invalid_request",
+                Message = message
+            };
+        }
+
+        private static bool IsSuccessStatusCode(HttpStatusCode statusCode)
+        {
+            int code = (int)statusCode;
+            return code >= 200 && code <= 299;
         }
     }
 }

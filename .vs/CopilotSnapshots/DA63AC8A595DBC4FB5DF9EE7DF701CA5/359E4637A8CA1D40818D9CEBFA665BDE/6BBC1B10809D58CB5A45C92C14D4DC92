@@ -1,0 +1,625 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MultiQuest_Management
+{
+    /// <summary>
+    /// Quest Agent HTTP API 클라이언트
+    /// ADB 의존성을 제거하고 Agent와 직접 통신합니다.
+    /// </summary>
+    public static class AgentApi
+    {
+        // 일반 API용 (빠른 응답 기대)
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(3)
+        };
+
+        // 오프라인 감지 전용 (1초 타임아웃)
+        private static readonly HttpClient _httpFast = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(1)
+        };
+
+        // stopAllStoryWing 전용 (Agent가 내부적으로 최대 ~4.5초 처리)
+        private static readonly HttpClient _httpLong = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+
+        // 전체 기기 동시 종료용 빠른 경로 (2.5s timeout)
+        private static readonly HttpClient _httpStopFast = new HttpClient
+        {
+            Timeout = TimeSpan.FromMilliseconds(2500)
+        };
+
+        // JSON 역직렬화 옵션: 정적 싱글턴으로 유지 (JIT/GC 비용 방지)
+        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        /// <summary>
+        /// Agent 상태 조회 (배터리, 스트림 상태 등)
+        /// </summary>
+        public static async Task<QuestAgentInfo> GetStatusAsync(
+            string host, int port = 18080, CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/status";
+                using var response = await _http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode) return null;
+
+                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] Status from {host}:{port}");
+
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
+
+                // deviceName이 비어있거나 공백만 있으면 null로 처리
+                if (!string.IsNullOrWhiteSpace(info?.DeviceName))
+                {
+                    info.DeviceName = info.DeviceName.Trim();
+                }
+                else
+                {
+                    info.DeviceName = null;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] DeviceName: '{info?.DeviceName}', Model: '{info?.Model}'");
+
+                return info;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] GetStatusAsync failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 오프라인 감지 전용 빠른 상태 조회 (1초 타임아웃, 로그 없음)
+        /// </summary>
+        public static async Task<QuestAgentInfo> GetStatusFastAsync(
+            string host, int port = 18080, CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/status";
+                using var response = await _httpFast.GetAsync(url, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode) return null;
+
+                string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var info = JsonSerializer.Deserialize<QuestAgentInfo>(json, _jsonOptions);
+                if (!string.IsNullOrWhiteSpace(info?.DeviceName))
+                    info.DeviceName = info.DeviceName.Trim();
+                else if (info != null)
+                    info.DeviceName = null;
+                return info;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 앱 실행 명령 (ADB 대체)
+        /// </summary>
+        public static async Task<bool> LaunchAppAsync(
+            string host,
+            int port,
+            string packageName,
+            string activityName = "com.unity3d.player.UnityPlayerActivity",
+            object extras = null,
+            bool forceRestart = false,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(host))
+                    return false;
+
+                if (port <= 0)
+                    port = 18080;
+
+                string url = $"http://{host}:{port}/command/launch";
+
+                var body = new
+                {
+                    packageName,
+                    activityName,
+                    forceRestart,
+                    extras = extras ?? new { }
+                };
+
+                using var content = JsonContent.Create(body, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+                string responseText = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] Launch {packageName} forceRestart={forceRestart} -> HTTP {(int)response.StatusCode}: {responseText}");
+
+                if (!response.IsSuccessStatusCode)
+                    return false;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(responseText);
+
+                    if (doc.RootElement.TryGetProperty("ok", out var okProp))
+                        return okProp.ValueKind == JsonValueKind.True;
+                }
+                catch
+                {
+                    // 응답 파싱 실패 시 HTTP 200이면 일단 성공으로 처리
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] LaunchAppAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 앱 종료 요청 (협력 종료 방식, ADB force-stop 대체)
+        /// </summary>
+        public static async Task<bool> StopAppAsync(
+            string host,
+            int port,
+            string packageName,
+            bool goHome = false,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(host))
+                    return false;
+
+                if (port <= 0)
+                    port = 18080;
+
+                string url = $"http://{host}:{port}/command/stop";
+
+                var body = new
+                {
+                    packageName,
+                    goHome
+                };
+
+                using var content = JsonContent.Create(body, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+                string responseText = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] Stop {packageName} -> HTTP {(int)response.StatusCode}: {responseText}");
+
+                if (!response.IsSuccessStatusCode)
+                    return false;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(responseText);
+
+                    if (doc.RootElement.TryGetProperty("ok", out var okProp))
+                        return okProp.ValueKind == JsonValueKind.True;
+                }
+                catch
+                {
+                    // 응답 파싱 실패 시 HTTP 200이면 일단 성공 처리
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] StopAppAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// RTSP 스트림 재시작
+        /// </summary>
+        public static async Task<bool> RestartCaptureAsync(
+            string host, int port = 18080, CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/restartCapture";
+
+                using var response = await _http.PostAsync(url, null, ct).ConfigureAwait(false);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] RestartCaptureAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 홈 화면으로 이동
+        /// </summary>
+        public static async Task<bool> GoHomeAsync(
+            string host, int port = 18080, CancellationToken ct = default)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(host))
+                    return false;
+
+                if (port <= 0)
+                    port = 18080;
+
+                string url = $"http://{host}:{port}/command/home";
+
+                using var content = JsonContent.Create(new { }, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+                string responseText = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] Home -> HTTP {(int)response.StatusCode}: {responseText}");
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] GoHomeAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 실행 중인 앱에 실시간 명령 전송
+        /// 예: skip, pause, resume, next, restartLesson
+        /// </summary>
+        public static async Task<bool> SendCommandAsync(
+            string host,
+            int port,
+            string packageName,
+            string command,
+            Dictionary<string, object> args = null,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/appCommand";
+
+                var body = new
+                {
+                    packageName,
+                    command,
+                    args = args ?? new Dictionary<string, object>()
+                };
+
+                using var content = JsonContent.Create(body, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] SendCommandAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 화면 켜기 및 절전 방지 (키 이벤트 전송)
+        /// KEYCODE_WAKEUP = 224
+        /// keepAwake = true: 송출 중 절전 진입 방지
+        /// </summary>
+        public static async Task<bool> WakeScreenAsync(
+            string host, 
+            int port = 18080, 
+            bool keepAwake = true,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/wake";
+
+                var body = new
+                {
+                    keepAwake = keepAwake
+                };
+
+                using var content = JsonContent.Create(body, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] WakeScreenAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// KeepAwake 활성화/비활성화 요청
+        /// Agent 앱의 절전 방지 Lock을 유지
+        /// </summary>
+        public static async Task<bool> KeepAwakeAsync(
+            string host,
+            int port = 18080,
+            bool enabled = true,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/keepAwake";
+
+                var body = new
+                {
+                    enabled
+                };
+
+                using var content = JsonContent.Create(body, options: _jsonOptions);
+                using var response = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] KeepAwakeAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// KeepAwakeActivity 열기 요청
+        /// Agent 앱의 대기 화면(KeepAwakeActivity)을 표시
+        /// </summary>
+        public static async Task<bool> ShowKeepAwakeAsync(
+            string host,
+            int port = 18080,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/showKeepAwake";
+
+                using var response = await _http.PostAsync(url, null, ct).ConfigureAwait(false);
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AgentApi] ShowKeepAwakeAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 모든 StoryWing 앱 종료 요청.
+        /// 신규 엔드포인트(/command/stopAllStoryWing) 시도 후 404이면
+        /// fallbackPackages 목록으로 개별 StopAppAsync 폴백 실행.
+        /// </summary>
+        public static async Task<bool> StopAllStoryWingAsync(
+            string host,
+            int port = 18080,
+            bool goHome = true,
+            IEnumerable<string> fallbackPackages = null)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            if (port <= 0)
+                port = 18080;
+
+            // ── 1단계: 신규 엔드포인트 시도 ──────────────────────────────
+            bool shouldFallback = false;
+
+            try
+            {
+                string url = $"http://{host}:{port}/command/stopAllStoryWing";
+
+                var body = new
+                {
+                    goHome,
+                    retryCount      = 3,
+                    retryIntervalMs = 150,
+                    goHomeDelayMs   = 600
+                };
+
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = JsonContent.Create(body, options: _jsonOptions)
+                };
+
+                using var response = await _http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    timeoutCts.Token
+                ).ConfigureAwait(false);
+
+                string responseText = await response.Content
+                    .ReadAsStringAsync(timeoutCts.Token)
+                    .ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWing -> HTTP {(int)response.StatusCode}: {responseText}");
+
+                if (response.IsSuccessStatusCode)
+                    return true;
+
+                // 404/405/501만 폴백 대상
+                if (response.StatusCode is 
+                    System.Net.HttpStatusCode.NotFound or
+                    System.Net.HttpStatusCode.MethodNotAllowed or
+                    System.Net.HttpStatusCode.NotImplemented)
+                {
+                    shouldFallback = true;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AgentApi] StopAllStoryWing: {response.StatusCode} → fallback to per-package stop");
+                }
+                else
+                {
+                    // 다른 HTTP 오류는 즉시 실패
+                    return false;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[AgentApi] StopAllStoryWing cancelled by caller");
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[AgentApi] StopAllStoryWing timeout");
+                return false;
+            }
+            catch (HttpRequestException ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWing network error: {ex.Message}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWing unexpected error: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+
+            // ── 2단계: 폴백 - 패키지별 개별 종료 ─────────────────────────
+            if (!shouldFallback)
+                return false;
+
+            var pkgs = fallbackPackages?
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                ?? new List<string>();
+
+            if (pkgs.Count == 0)
+            {
+                // 폴백이 필요하지만 종료할 패키지가 없으면 실패
+                System.Diagnostics.Debug.WriteLine(
+                    "[AgentApi] StopAllStoryWing fallback: no packages to stop");
+                return false;
+            }
+
+            bool[] stopResults = await Task.WhenAll(
+                pkgs.Select(pkg => StopAppAsync(host, port, pkg, goHome: false, ct))
+            ).ConfigureAwait(false);
+
+            bool stopSucceeded = stopResults.All(x => x);
+
+            bool homeSucceeded = !goHome ||
+                await GoHomeAsync(host, port, ct).ConfigureAwait(false);
+
+            bool finalResult = stopSucceeded && homeSucceeded;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[AgentApi] StopAllStoryWing fallback result: stop={stopSucceeded}, home={homeSucceeded}, final={finalResult}");
+
+            return finalResult;
+        }
+
+        /// <summary>
+        /// 전체 기기 동시 종료용 빠른 경로.
+        /// fallbackPackages를 돌리지 않고 stopAllStoryWing만 빠르게 호출합니다.
+        /// Agent는 즉시 200 OK를 반환하고 실제 종료는 내부 백그라운드에서 처리합니다.
+        /// </summary>
+        public static async Task<bool> StopAllStoryWingFastAsync(
+            string host,
+            int port = 18080,
+            bool goHome = true,
+            int retryCount = 2,
+            int retryIntervalMs = 100,
+            int goHomeDelayMs = 250)
+        {
+            if (string.IsNullOrWhiteSpace(host))
+                return false;
+
+            if (port <= 0)
+                port = 18080;
+
+            try
+            {
+                string url = $"http://{host}:{port}/command/stopAllStoryWing";
+
+                var body = new
+                {
+                    goHome,
+                    retryCount,
+                    retryIntervalMs,
+                    goHomeDelayMs,
+                    fast = true
+                };
+
+                string json = JsonSerializer.Serialize(body);
+
+                using var content = new StringContent(
+                    json,
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _httpStopFast.PostAsync(url, content);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWingFast {host}:{port} -> {(int)response.StatusCode}");
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StopAllStoryWingFastAsync failed: {host}:{port} {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Android CapturePermissionActivity UI
+        /// restartCapture와 달리 정상 송출 중인 캡처를 종료하지 않습니다.
+        /// STOPPED/IDLE이 15초 이상 지속될 때 Android 와치독 fallback으로 사용합니다.
+        /// </summary>
+        public static async Task<bool> StartCaptureUiAsync(string host, int port = 18080)
+        {
+            try
+            {
+                string url = $"http://{host}:{port}/command/startCaptureUi";
+
+                using var content = new StringContent(
+                    "{}",
+                    Encoding.UTF8,
+                    "application/json");
+
+                var response = await _http.PostAsync(url, content);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StartCaptureUi {host}:{port} → {(int)response.StatusCode}");
+
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi] StartCaptureUiAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+    }
+}
