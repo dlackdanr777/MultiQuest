@@ -1,4 +1,9 @@
 ﻿// MainWindow.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -68,6 +73,16 @@ namespace MultiQuest_Management
         private CancellationTokenSource _scanCancelSource;
         private IReadOnlyDictionary<string, string> _serialNameDic = SettingsService.Instance.Snapshot();
 
+        // Agent clean-install/서명 변경 뒤에도 stable deviceId로 이름을 복원합니다.
+        private readonly AgentNameRecoveryStore _agentNameRecoveryStore =
+            AgentNameRecoveryStore.Load();
+
+        private readonly ConcurrentDictionary<string, DateTime>
+            _agentNameRestoreCooldownUtc =
+                new(StringComparer.OrdinalIgnoreCase);
+
+        private const int AgentNameRestoreCooldownSeconds = 30;
+
         private LibVLC _rtspLibVlc;
         private RtspQualityManager _rtspQualityManager;
         private bool _isRefreshing;
@@ -103,7 +118,7 @@ namespace MultiQuest_Management
 
         // 자동 감지용 측정값 (이동 평균)
         private double _avgBufferingRate = 0.0;   // 전체 스트림 평균 버퍼링률 (0~1)
-        private double _cpuUsage         = 0.0;   // 0~100
+        private double _cpuUsage = 0.0;   // 0~100
 
         // CPU 측정용
         private System.Diagnostics.PerformanceCounter _cpuCounter;
@@ -112,6 +127,70 @@ namespace MultiQuest_Management
 
         // Device scanning flag
         private bool _isScanning;
+
+        // 전체 앱 빠른 실행 모드:
+        // 16대에 명령을 동시에 전송하고, UI 결과는 3.8초 안에 반환합니다.
+        // 여기서 Success는 실제 APP_STATE_ACTIVE 완료가 아니라 Agent의 명령 접수(ACCEPTED)입니다.
+        private const int FleetLaunchConcurrency = 16;
+        private const int FleetLaunchTotalTimeoutMs = 3_800;
+
+        // 저성능 PC/AP에서도 전체 종료 요청이 한 번에 폭주하지 않도록 8대씩 전송합니다.
+        // 실제 STOP은 각 Quest Agent 내부에서 0초/1초/2초에 독립적으로 재시도합니다.
+        private const int FleetStopConcurrency = 8;
+        private const int FleetStopSettleDelayMs = 2_300;
+
+        // 개별 실행도 전체 실행과 같은 fastDispatch를 사용합니다.
+        // 정상 시 1~2초, 종료 barrier 재시도까지 포함해 최대 7초만 기다립니다.
+        private const int IndividualLaunchTotalTimeoutMs = 7_000;
+
+        // 코딩/영어 콘텐츠 실행은 WPF가 Unity 준비/ACK를 동기 대기하지 않습니다.
+        //
+        // WPF는 앱 launch와 Agent의 장기 재전송 예약까지만 확인하고 6.5초 안에
+        // UI를 해제합니다. 실제 Quest 내부에서는 Agent가 0~16초 동안
+        // 2초 간격으로 9회 ACTION_COMMAND를 재전송합니다.
+        //
+        // 따라서:
+        // - 웜 스타트: 첫 방송으로 즉시 적용
+        // - 콜드 스타트: Unity Receiver가 약 9초에 등록돼도 10/12/14/16초 방송이 포착
+        // - WPF 실행 UI: 18초 준비 대기 + 7초 ACK 대기를 제거
+        private const int FleetContentConcurrency = 16;
+        private const int FleetContentTotalTimeoutMs = 6_500;
+        private const int ContentCommandRetryCount = 9;
+        private const int ContentCommandRetryIntervalMs = 2_000;
+
+        private readonly SemaphoreSlim _fleetLaunchGate =
+            new(FleetLaunchConcurrency, FleetLaunchConcurrency);
+        private readonly SemaphoreSlim _fleetContentGate =
+            new(FleetContentConcurrency, FleetContentConcurrency);
+
+        private CancellationTokenSource _fleetLaunchCancelSource;
+        private volatile bool _isFleetLaunchRunning;
+
+        private sealed class DeviceAppLaunchResult
+        {
+            public Device Device { get; init; }
+            public bool Success { get; init; }
+            public string PackageName { get; init; }
+            public string State { get; init; }
+            public string Message { get; init; }
+            public string OperationId { get; init; }
+            public int Attempts { get; init; }
+            public long ElapsedMs { get; init; }
+        }
+
+        private sealed class ContentDispatchResult
+        {
+            public Device Device { get; init; }
+            public string PackageName { get; init; }
+
+            // 현재 AAR는 command ACK용 operationId를 Unity에 전달하지 않으므로
+            // Agent가 명령 재전송 시퀀스를 접수한 상태와 앱 ACK 확인 상태를 분리합니다.
+            public bool Dispatched { get; init; }
+            public bool Verified { get; init; }
+
+            public string State { get; init; }
+            public string Message { get; init; }
+        }
 
         // IPv4 또는 IPv4:PORT 형태만 허용
         private static bool IsValidIpEndpoint(string value)
@@ -168,12 +247,12 @@ namespace MultiQuest_Management
             this.Loaded += Window_Loaded;
 
             // 통합 상태 체크 타이머: 배터리, RTSP, 오프라인 감지 (3초 주기)
-                _statusCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                _statusCheckTimer.Tick += UpdateStatus;
-                _statusCheckTimer.Start();
+            _statusCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _statusCheckTimer.Tick += UpdateStatus;
+            _statusCheckTimer.Start();
 
-                // 품질 정보 업데이트 타이머: 5초마다 RTSP 품질 정보를 UI에 반영
-                _qualityInfoTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            // 품질 정보 업데이트 타이머: 5초마다 RTSP 품질 정보를 UI에 반영
+            _qualityInfoTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _qualityInfoTimer.Tick += QualityInfoTimer_Tick;
             _qualityInfoTimer.Start();
 
@@ -217,7 +296,7 @@ namespace MultiQuest_Management
         {
             bool isFull = UpdateService.GetLocalEdition() == UpdateService.EditionFull;
             var vis = isFull ? Visibility.Visible : Visibility.Collapsed;
-            BtnXrCoding.Visibility  = vis;
+            BtnXrCoding.Visibility = vis;
             BtnXrEnglish.Visibility = vis;
         }
 
@@ -227,6 +306,9 @@ namespace MultiQuest_Management
         /// </summary>
         private async void UpdateStatus(object? sender, EventArgs e)
         {
+            // 전체 앱 실행 중에는 16대 상태 폴링 버스트를 잠시 중지합니다.
+            // 4GB 메모리/저전력 CPU 환경에서 명령 HTTP가 상태 조회와 경쟁하지 않게 합니다.
+            if (_isFleetLaunchRunning) return;
             if (_isStatusCheckRunning) return;
             _isStatusCheckRunning = true;
             try
@@ -312,8 +394,8 @@ namespace MultiQuest_Management
                                     HardRestartRtspTile(d, "reconnected");
                             }
 
-                            if (status.Battery >= 0)  d.BatteryLevel  = status.Battery;
-                            d.IsCharging   = status.IsCharging;
+                            if (status.Battery >= 0) d.BatteryLevel = status.Battery;
+                            d.IsCharging = status.IsCharging;
                             if (!string.IsNullOrEmpty(status.ChargingStatus))
                                 d.ChargingStatus = status.ChargingStatus;
                             if (!string.IsNullOrEmpty(status.Serial) && string.IsNullOrEmpty(d.Serial))
@@ -323,10 +405,10 @@ namespace MultiQuest_Management
                             {
                                 bool httpStopped =
                                     string.Equals(status.StreamState, "STOPPED", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(status.StreamState, "IDLE",    StringComparison.OrdinalIgnoreCase);
+                                    string.Equals(status.StreamState, "IDLE", StringComparison.OrdinalIgnoreCase);
                                 bool agentFrozenOrError =
                                     string.Equals(status.StreamState, "FROZEN", StringComparison.OrdinalIgnoreCase) ||
-                                    string.Equals(status.StreamState, "ERROR",  StringComparison.OrdinalIgnoreCase);
+                                    string.Equals(status.StreamState, "ERROR", StringComparison.OrdinalIgnoreCase);
                                 bool rtspFrozen = d.Rtsp?.IsFrozen == true;
                                 bool httpSaysRunning =
                                     string.Equals(status.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase);
@@ -421,13 +503,8 @@ namespace MultiQuest_Management
                                 }
                             }
 
-                            // 이름 우선순위
-                            if (!string.IsNullOrWhiteSpace(status.DeviceName))
-                                d.Name = status.DeviceName.Trim();
-                            else if (!string.IsNullOrEmpty(d.Serial)
-                                && _serialNameDic.TryGetValue(d.Serial, out var mapped)
-                                && !string.IsNullOrWhiteSpace(mapped))
-                                d.Name = mapped.Trim();
+                            // generated Quest3_XXXX가 기존 사용자 이름을 덮어쓰지 않게 합니다.
+                            ApplyResolvedAgentName(status, d);
 
                             // RTSP URL 변경 체크
                             if (!string.IsNullOrEmpty(status.RtspUrl))
@@ -452,11 +529,11 @@ namespace MultiQuest_Management
                             // frameAgeMs ≥ 8000ms: RUNNING인데 컴포지터가 너무 오래됨 → 실제 프리즈 또는 세션 실패
                             long encodedFrames = status.EncodedFrameCount ?? -1;
                             long lastFrameAtMs = status.LastFrameAtMs ?? -1;
-                            long frameAgeMs    = status.FrameAgeMs
+                            long frameAgeMs = status.FrameAgeMs
                                 ?? (lastFrameAtMs > 0
                                     ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrameAtMs
                                     : -1);
-                            int  rtspClients   = status.RtspClientCount ?? -1;
+                            int rtspClients = status.RtspClientCount ?? -1;
 
                             Debug.WriteLine(
                                 $"[Status] {d.Name} state={d.StreamState} vlcPlaying={d.Rtsp?.IsPlaying} vlcFrozen={d.Rtsp?.IsFrozen}");
@@ -481,13 +558,13 @@ namespace MultiQuest_Management
                                 {
                                     d.LastKnownEncodedFrameCount = -1;
                                     d.EncodedFrameCountSameAtUtc = DateTime.MinValue;
-                                    d.RunningZeroFramesSinceUtc  = DateTime.MinValue;
+                                    d.RunningZeroFramesSinceUtc = DateTime.MinValue;
                                 }
                                 else
                                 {
-                                    long frames     = status.EncodedFrameCount ?? -1;
-                                    long lastFrMs   = status.LastFrameAtMs ?? -1;
-                                    long ageMs      = status.FrameAgeMs
+                                    long frames = status.EncodedFrameCount ?? -1;
+                                    long lastFrMs = status.LastFrameAtMs ?? -1;
+                                    long ageMs = status.FrameAgeMs
                                         ?? (lastFrMs > 0
                                             ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastFrMs
                                             : -1);
@@ -590,7 +667,7 @@ namespace MultiQuest_Management
                                 // RUNNING 아닐 때는 모든 트래킹 리셋
                                 d.LastKnownEncodedFrameCount = -1;
                                 d.EncodedFrameCountSameAtUtc = DateTime.MinValue;
-                                d.RunningZeroFramesSinceUtc  = DateTime.MinValue;
+                                d.RunningZeroFramesSinceUtc = DateTime.MinValue;
                             }
                         }
                     }
@@ -600,6 +677,247 @@ namespace MultiQuest_Management
             {
                 _isStatusCheckRunning = false;
             }
+        }
+
+        /// <summary>
+        /// Agent가 보낸 이름과 WPF 보조 캐시를 결합해 최종 표시 이름을 결정합니다.
+        ///
+        /// - deviceNameSource=custom: Agent 이름을 신뢰하고 WPF에 저장
+        /// - deviceNameSource=generated 또는 Quest3_XXXX: WPF 캐시/Settings 이름으로 복구
+        /// - 구형 Agent: 명백한 자동 생성 이름이 아니면 사용자 이름으로 간주
+        /// </summary>
+        private void ApplyResolvedAgentName(
+            QuestAgentInfo agent,
+            Device device)
+        {
+            if (agent == null || device == null)
+                return;
+
+            string reportedName =
+                agent.DeviceName?.Trim();
+
+            string source =
+                agent.DeviceNameSource?.Trim();
+
+            string[] keys = BuildAgentNameCacheKeys(
+                agent,
+                device);
+
+            bool explicitlyCustom =
+                string.Equals(
+                    source,
+                    "custom",
+                    StringComparison.OrdinalIgnoreCase);
+
+            bool explicitlyGenerated =
+                string.Equals(
+                    source,
+                    "generated",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    source,
+                    "default",
+                    StringComparison.OrdinalIgnoreCase);
+
+            bool looksGenerated =
+                IsGeneratedAgentName(
+                    reportedName,
+                    agent,
+                    device);
+
+            bool customFromLegacyAgent =
+                string.IsNullOrWhiteSpace(source) &&
+                !string.IsNullOrWhiteSpace(reportedName) &&
+                !looksGenerated;
+
+            if (explicitlyCustom || customFromLegacyAgent)
+            {
+                device.Name = reportedName;
+                _agentNameRecoveryStore.Put(keys, reportedName);
+
+                Debug.WriteLine(
+                    $"[NameRecovery] cache custom name: " +
+                    $"deviceId={agent.DeviceId} name='{reportedName}' source={source}");
+
+                return;
+            }
+
+            string recoveredName = null;
+
+            if (_agentNameRecoveryStore.TryGet(keys, out string cachedName))
+            {
+                recoveredName = cachedName;
+            }
+            else if (!string.IsNullOrWhiteSpace(device.Serial) &&
+                     _serialNameDic.TryGetValue(
+                         device.Serial,
+                         out string mappedName) &&
+                     !string.IsNullOrWhiteSpace(mappedName))
+            {
+                recoveredName = mappedName.Trim();
+                _agentNameRecoveryStore.Put(keys, recoveredName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(recoveredName))
+            {
+                device.Name = recoveredName;
+
+                // Agent 쪽 이름까지 복원하여 다음 PC/다음 검색에서도 동일하게 보이게 합니다.
+                if (explicitlyGenerated ||
+                    looksGenerated ||
+                    string.IsNullOrWhiteSpace(reportedName))
+                {
+                    ScheduleAgentNameRestore(
+                        agent,
+                        device,
+                        recoveredName,
+                        keys);
+                }
+
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(reportedName))
+            {
+                device.Name = reportedName;
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(agent.Model))
+            {
+                device.Name = agent.Model.Trim();
+                return;
+            }
+
+            device.Name =
+                !string.IsNullOrWhiteSpace(device.Serial)
+                    ? device.Serial
+                    : agent.Host ?? device.AgentHost ?? device.Ip;
+        }
+
+        private string[] BuildAgentNameCacheKeys(
+            QuestAgentInfo agent,
+            Device device)
+        {
+            var keys = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(agent?.DeviceId))
+                keys.Add("id:" + agent.DeviceId.Trim());
+
+            string serial =
+                !string.IsNullOrWhiteSpace(agent?.Serial)
+                    ? agent.Serial.Trim()
+                    : device?.Serial?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(serial) &&
+                !string.Equals(serial, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+            {
+                keys.Add("serial:" + serial);
+            }
+
+            string host =
+                !string.IsNullOrWhiteSpace(agent?.Host)
+                    ? agent.Host.Trim()
+                    : device?.AgentHost?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(host))
+                keys.Add("host:" + host);
+
+            return keys
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static bool IsGeneratedAgentName(
+            string name,
+            QuestAgentInfo agent,
+            Device device)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return true;
+
+            string normalized = name.Trim();
+
+            if (normalized.StartsWith(
+                    "Quest3_",
+                    StringComparison.OrdinalIgnoreCase) &&
+                normalized.Length <= 24)
+            {
+                return true;
+            }
+
+            return
+                string.Equals(normalized, agent?.Model, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, agent?.Host, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, agent?.Ip, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, agent?.Serial, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, agent?.DeviceId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, device?.AgentHost, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, device?.Ip, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, device?.Serial, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ScheduleAgentNameRestore(
+            QuestAgentInfo agent,
+            Device device,
+            string recoveredName,
+            IEnumerable<string> cacheKeys)
+        {
+            if (agent == null ||
+                device == null ||
+                string.IsNullOrWhiteSpace(device.AgentHost) ||
+                string.IsNullOrWhiteSpace(recoveredName))
+            {
+                return;
+            }
+
+            string cooldownKey =
+                cacheKeys?.FirstOrDefault() ??
+                "host:" + device.AgentHost;
+
+            DateTime now = DateTime.UtcNow;
+
+            if (_agentNameRestoreCooldownUtc.TryGetValue(
+                    cooldownKey,
+                    out DateTime previous) &&
+                (now - previous).TotalSeconds <
+                    AgentNameRestoreCooldownSeconds)
+            {
+                return;
+            }
+
+            _agentNameRestoreCooldownUtc[cooldownKey] = now;
+
+            int port =
+                device.AgentStatusPort > 0
+                    ? device.AgentStatusPort
+                    : 18080;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    bool restored =
+                        await AgentApi.SetDeviceNameAsync(
+                            device.AgentHost,
+                            port,
+                            recoveredName,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                    Debug.WriteLine(
+                        $"[NameRecovery] restore to Agent: " +
+                        $"host={device.AgentHost}:{port} " +
+                        $"name='{recoveredName}' restored={restored}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(
+                        $"[NameRecovery] restore failed: " +
+                        $"host={device.AgentHost}:{port} " +
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            });
         }
 
         private void OnChangeSerialName(IReadOnlyDictionary<string, string> serialNameDic)
@@ -614,9 +932,10 @@ namespace MultiQuest_Management
                     if (device.Name?.Equals(name, StringComparison.Ordinal) == true) continue;
                     device.Name = name;
                 }
-                else
+                else if (string.IsNullOrWhiteSpace(device.Name))
                 {
-                    device.Name = device.Serial; // 시리얼을 이름으로 사용
+                    // Agent/복구 캐시에서 이미 받은 이름은 유지합니다.
+                    device.Name = device.Serial;
                 }
             }
             // 이름 변경 즉시 UI 반영
@@ -773,15 +1092,15 @@ namespace MultiQuest_Management
             (string label, string color) = _operationProfile switch
             {
                 RtspOperationProfile.Stability => ("안정 우선", "#FF8C42"),
-                RtspOperationProfile.Quality   => ("화질 우선", "#3CE48C"),
-                _                              => ("균형",       "#5B9BD5")
+                RtspOperationProfile.Quality => ("화질 우선", "#3CE48C"),
+                _ => ("균형", "#5B9BD5")
             };
             TxtProfileName.Text = label;
             TxtProfileName.Foreground = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
 
             // AUTO 배지
-            TxtAutoMode.Text       = _profileAutoMode ? "AUTO" : "수동";
+            TxtAutoMode.Text = _profileAutoMode ? "AUTO" : "수동";
             TxtAutoMode.Foreground = _profileAutoMode
                 ? new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Colors.LightGreen)
@@ -842,9 +1161,9 @@ namespace MultiQuest_Management
 
         private void ProfileAuto_Click(object sender, RoutedEventArgs e)
         {
-            _profileAutoMode  = true;
+            _profileAutoMode = true;
             _avgBufferingRate = 0.0;
-            _cpuUsage         = 0.0;
+            _cpuUsage = 0.0;
             UpdateProfileUI();
         }
 
@@ -856,51 +1175,177 @@ namespace MultiQuest_Management
             try { System.Media.SystemSounds.Beep.Play(); } catch { }
         }
 
-        // 지정된 디바이스에서 설치된 패키지를 순서대로 찾아 실행 (백그라운드 비동기)
-        // 후보 중 하나라도 실행에 성공하면 즉시 반환
-        public async void StartApp(Device device, int index, Action onCompleted = null)
+        // 지정된 디바이스에서 설치된 패키지를 순서대로 찾아 실행합니다.
+        // 개별 창에서도 안전하게 취소할 수 있도록 Task 기반 API를 제공합니다.
+        public async Task<bool> StartAppAsync(
+            Device device,
+            int index,
+            CancellationToken cancellationToken = default,
+            bool showErrorUi = false)
         {
             if (device == null)
             {
-                ShowMsg("기기를 확인하세요.");
-                onCompleted?.Invoke();
-                return;
+                if (showErrorUi)
+                    ShowMsg("기기를 확인하세요.");
+
+                return false;
             }
 
             if (index < 0 || index >= _pkgNames.Length)
             {
-                ShowMsg("패키지 인덱스가 올바르지 않습니다.");
-                onCompleted?.Invoke();
-                return;
+                if (showErrorUi)
+                    ShowMsg("패키지 인덱스가 올바르지 않습니다.");
+
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(device.AgentHost))
             {
-                ShowMsg("이 기기는 Agent로 연결되어 있지 않습니다. Agent 검색을 먼저 실행하세요.");
-                onCompleted?.Invoke();
-                return;
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        "이 기기는 Agent로 연결되어 있지 않습니다. " +
+                        "Agent 검색을 먼저 실행하세요.");
+                }
+
+                return false;
             }
 
-            string[] candidates = _pkgNames[index];
+            using var timeoutCts =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
 
-            bool success = await LaunchCandidatesByAgentAsync(
-                device,
-                candidates,
-                extras: null,
-                forceRestart: true);
+            timeoutCts.CancelAfter(
+                IndividualLaunchTotalTimeoutMs);
 
-            if (!success)
+            try
             {
-                ShowMsg("앱 실행에 실패했습니다. Agent 상태와 앱 설치 여부를 확인하세요.");
-            }
+                DeviceAppLaunchResult result =
+                    await LaunchCandidatesByAgentFastAsync(
+                        device,
+                        _pkgNames[index],
+                        extras: null,
+                        timeoutCts.Token);
 
-            onCompleted?.Invoke();
+                if (result.Success)
+                {
+                    device.MirrorError = null;
+                    return true;
+                }
+
+                device.MirrorError =
+                    $"앱 실행 명령 확인 필요: " +
+                    $"{result.State} {result.Message}";
+
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        $"{device.Name} 앱 실행 명령 전송 실패\n" +
+                        $"상태: {result.State}\n" +
+                        $"내용: {result.Message}");
+                }
+
+                return false;
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                // DeviceWindow가 닫히면서 취소한 경우입니다.
+                // 예외 UI를 띄우지 않고 호출자에게 취소를 전달합니다.
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                device.MirrorError =
+                    $"앱 실행 명령 응답 시간 초과 " +
+                    $"({IndividualLaunchTotalTimeoutMs / 1000.0:F1}초)";
+
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        $"{device.Name} 앱 실행 명령이 " +
+                        $"{IndividualLaunchTotalTimeoutMs / 1000.0:F1}초 안에 " +
+                        "접수되지 않았습니다.");
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                device.MirrorError =
+                    $"앱 실행 요청 오류: " +
+                    $"{ex.GetType().Name}: {ex.Message}";
+
+                Debug.WriteLine(
+                    $"[StartAppAsync] device={device.Name} " +
+                    $"error={ex}");
+
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        $"앱 실행 중 오류가 발생했습니다: " +
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 기존 XAML 및 호출부 호환용 async-void 래퍼입니다.
+        /// DeviceWindow는 이 래퍼 대신 StartAppAsync를 직접 await합니다.
+        /// </summary>
+        public async void StartApp(
+            Device device,
+            int index,
+            Action onCompleted = null)
+        {
+            try
+            {
+                await StartAppAsync(
+                    device,
+                    index,
+                    CancellationToken.None,
+                    showErrorUi: true);
+            }
+            catch (OperationCanceledException)
+            {
+                // CancellationToken.None 경로에서는 정상적으로 발생하지 않지만,
+                // 호환 래퍼에서 예외가 UI Dispatcher까지 전파되지 않게 합니다.
+                Debug.WriteLine(
+                    $"[StartApp] cancelled. device={device?.Name}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[StartApp] unhandled wrapper error: {ex}");
+
+                ShowMsg(
+                    $"앱 실행 중 오류가 발생했습니다: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                try
+                {
+                    onCompleted?.Invoke();
+                }
+                catch (Exception callbackEx)
+                {
+                    // 닫힌 DeviceWindow를 캡처한 콜백 등이 실패해도
+                    // WPF Dispatcher 예외 UI로 전파하지 않습니다.
+                    Debug.WriteLine(
+                        $"[StartApp] completion callback ignored: " +
+                        $"{callbackEx.GetType().Name}: {callbackEx.Message}");
+                }
+            }
         }
 
         // ====================== 앱 제어 버튼 ======================
 
         /// <summary>
-        /// 공통 HTTP Agent 실행 helper - 후보 패키지 순차 시도
+        /// 기존 호출부 호환용 bool 래퍼입니다.
+        /// 내부적으로는 Agent operation의 COMPLETED(APP_STATE_ACTIVE)까지 기다립니다.
         /// </summary>
         private async Task<bool> LaunchCandidatesByAgentAsync(
             Device device,
@@ -908,29 +1353,590 @@ namespace MultiQuest_Management
             object extras = null,
             bool forceRestart = false)
         {
+            DeviceAppLaunchResult result = await LaunchCandidatesByAgentVerifiedAsync(
+                device,
+                candidates,
+                extras,
+                forceRestart,
+                CancellationToken.None);
+
+            return result.Success;
+        }
+
+        /// <summary>
+        /// 후보 패키지를 순서대로 실행하고 실제 전면 활성화(APP_STATE_ACTIVE)를 확인합니다.
+        /// LaunchAppAsync의 accepted=true만으로 성공 처리하지 않습니다.
+        /// </summary>
+        private async Task<DeviceAppLaunchResult> LaunchCandidatesByAgentVerifiedAsync(
+            Device device,
+            string[] candidates,
+            object extras,
+            bool forceRestart,
+            CancellationToken cancellationToken)
+        {
             if (device == null)
-                return false;
-
-            if (string.IsNullOrWhiteSpace(device.AgentHost))
-                return false;
-
-            string activity = "com.unity3d.player.UnityPlayerActivity";
-
-            foreach (var pkg in candidates)
             {
-                bool launched = await AgentApi.LaunchAppAsync(
-                    device.AgentHost,
-                    device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080,
-                    pkg,
-                    activity,
-                    extras,
-                    forceRestart);
-
-                if (launched)
-                    return true;
+                return FailedLaunchResult(null, "INVALID_DEVICE", "기기 정보가 없습니다.", 0);
             }
 
-            return false;
+            if (string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                return FailedLaunchResult(device, "NO_AGENT_HOST", "AgentHost가 없습니다.", 0);
+            }
+
+            string[] normalizedCandidates = candidates?
+                .Where(pkg => !string.IsNullOrWhiteSpace(pkg))
+                .Select(pkg => pkg.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() ?? Array.Empty<string>();
+
+            if (normalizedCandidates.Length == 0)
+            {
+                return FailedLaunchResult(device, "NO_PACKAGE", "실행할 패키지가 없습니다.", 0);
+            }
+
+            int port = device.AgentStatusPort > 0
+                ? device.AgentStatusPort
+                : 18080;
+
+            // 먼저 Agent가 실제 응답하는지 확인합니다.
+            QuestAgentInfo status = await AgentApi.GetStatusAsync(
+                device.AgentHost,
+                port,
+                cancellationToken);
+
+            if (status == null)
+            {
+                return FailedLaunchResult(
+                    device,
+                    "AGENT_OFFLINE",
+                    $"Agent 상태 응답이 없습니다: {device.AgentHost}:{port}",
+                    0);
+            }
+
+            string activity = "com.unity3d.player.UnityPlayerActivity";
+            string lastMessage = "실행 가능한 후보 패키지를 찾지 못했습니다.";
+            string lastState = "FAILED";
+            int attempts = 0;
+
+            foreach (string packageName in normalizedCandidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 1차 실행: 실제 ACTIVE 완료까지 최대 45초 대기
+                attempts++;
+                AgentOperationInfo operation = await AgentApi.LaunchAppAndWaitAsync(
+                    device.AgentHost,
+                    port,
+                    packageName,
+                    activity,
+                    extras,
+                    forceRestart,
+                    completionTimeout: TimeSpan.FromSeconds(45),
+                    cancellationToken: cancellationToken);
+
+                LogLaunchOperation(device, packageName, attempts, operation);
+
+                if (IsCompletedLaunch(operation))
+                {
+                    await SafeHideKeepAwakeAsync(device, cancellationToken);
+
+                    return new DeviceAppLaunchResult
+                    {
+                        Device = device,
+                        Success = true,
+                        PackageName = packageName,
+                        State = operation.State ?? "COMPLETED",
+                        Message = operation.Message ?? "APP_STATE_ACTIVE",
+                        Attempts = attempts
+                    };
+                }
+
+                lastState = operation?.State ?? "NO_OPERATION";
+                lastMessage = operation?.Message ?? "Agent operation 응답이 없습니다.";
+
+                // 설치되지 않은 후보/Activity dispatch 실패라면 다음 후보로 넘어갑니다.
+                if (LooksLikePackageDispatchFailure(operation))
+                {
+                    continue;
+                }
+
+                // 장시간 운용 후 화면 전환이 늦거나 일시적으로 차단된 경우 같은 패키지를 1회 재시도합니다.
+                if (operation == null || operation.Retryable)
+                {
+                    await Task.Delay(1_500, cancellationToken);
+
+                    await AgentApi.WakeScreenAsync(
+                        device.AgentHost,
+                        port,
+                        keepAwake: true,
+                        cancellationToken: cancellationToken);
+
+                    attempts++;
+                    AgentOperationInfo retryOperation = await AgentApi.LaunchAppAndWaitAsync(
+                        device.AgentHost,
+                        port,
+                        packageName,
+                        activity,
+                        extras,
+                        forceRestart: true,
+                        completionTimeout: TimeSpan.FromSeconds(45),
+                        cancellationToken: cancellationToken);
+
+                    LogLaunchOperation(device, packageName, attempts, retryOperation);
+
+                    if (IsCompletedLaunch(retryOperation))
+                    {
+                        await SafeHideKeepAwakeAsync(device, cancellationToken);
+
+                        return new DeviceAppLaunchResult
+                        {
+                            Device = device,
+                            Success = true,
+                            PackageName = packageName,
+                            State = retryOperation.State ?? "COMPLETED",
+                            Message = retryOperation.Message ?? "APP_STATE_ACTIVE",
+                            Attempts = attempts
+                        };
+                    }
+
+                    lastState = retryOperation?.State ?? "NO_OPERATION";
+                    lastMessage = retryOperation?.Message ?? lastMessage;
+                }
+            }
+
+            await SafeHideKeepAwakeAsync(device, CancellationToken.None);
+
+            return FailedLaunchResult(
+                device,
+                lastState,
+                lastMessage,
+                attempts);
+        }
+
+        /// <summary>
+        /// 전체 실행 전용 빠른 경로입니다.
+        ///
+        /// 실제 APP_STATE_ACTIVE 완료를 기다리지 않고 Agent가 launch 명령을
+        /// 접수했는지만 확인하므로 16대 명령 전송을 5초 안에 마칠 수 있습니다.
+        /// 실제 활성화 결과는 operationId를 이용해 백그라운드에서 저빈도로 확인합니다.
+        /// </summary>
+        private async Task<DeviceAppLaunchResult> LaunchCandidatesByAgentFastAsync(
+            Device device,
+            string[] candidates,
+            object extras,
+            CancellationToken cancellationToken)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            if (device == null)
+            {
+                return FailedLaunchResult(
+                    null,
+                    "INVALID_DEVICE",
+                    "기기 정보가 없습니다.",
+                    0,
+                    elapsedMs: stopwatch.ElapsedMilliseconds);
+            }
+
+            if (string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                return FailedLaunchResult(
+                    device,
+                    "NO_AGENT_HOST",
+                    "AgentHost가 없습니다.",
+                    0,
+                    elapsedMs: stopwatch.ElapsedMilliseconds);
+            }
+
+            string[] normalizedCandidates = candidates?
+                .Where(packageName => !string.IsNullOrWhiteSpace(packageName))
+                .Select(packageName => packageName.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+                ?? Array.Empty<string>();
+
+            if (normalizedCandidates.Length == 0)
+            {
+                return FailedLaunchResult(
+                    device,
+                    "NO_PACKAGE",
+                    "실행할 패키지가 없습니다.",
+                    0,
+                    elapsedMs: stopwatch.ElapsedMilliseconds);
+            }
+
+            int port = device.AgentStatusPort > 0
+                ? device.AgentStatusPort
+                : 18080;
+
+            const string activity =
+                "com.unity3d.player.UnityPlayerActivity";
+
+            int attempts = 0;
+            AgentCommandReply lastReply = null;
+            string lastPackageName = null;
+
+            foreach (string packageName in normalizedCandidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                attempts++;
+                lastPackageName = packageName;
+
+                AgentCommandReply reply =
+                    await AgentApi.LaunchAppFastDetailedAsync(
+                        device.AgentHost,
+                        port,
+                        packageName,
+                        activity,
+                        extras,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                lastReply = reply;
+
+                Debug.WriteLine(
+                    $"[FastFleetDispatch] " +
+                    $"device={device.Name} " +
+                    $"host={device.AgentHost}:{port} " +
+                    $"package={packageName} " +
+                    $"attempt={attempts} " +
+                    $"accepted={reply?.IsAcceptedSuccess} " +
+                    $"operationId={reply?.OperationId} " +
+                    $"status={(int?)reply?.StatusCode} " +
+                    $"error={reply?.Error} " +
+                    $"message={reply?.Message}");
+
+                /*
+                 * 개별 종료 직후 실행하면 Android Agent의 stop barrier가
+                 * 약 2.75초 동안 launch를 거부할 수 있습니다. 이 응답을
+                 * 일반 실패로 끝내면 IdleShield가 남아 UI가 잠긴 것처럼
+                 * 보이므로, Agent가 알려준 RetryAfterMs만큼 기다린 뒤
+                 * 동일 패키지를 한 번만 재전송합니다.
+                 */
+                if (IsStopSequenceInProgress(reply))
+                {
+                    int retryDelayMs =
+                        Math.Min(
+                            3_200,
+                            Math.Max(
+                                200,
+                                reply.RetryAfterMs > 0
+                                    ? reply.RetryAfterMs + 150
+                                    : 1_000));
+
+                    await Task.Delay(
+                        retryDelayMs,
+                        cancellationToken);
+
+                    attempts++;
+
+                    reply =
+                        await AgentApi.LaunchAppFastDetailedAsync(
+                            device.AgentHost,
+                            port,
+                            packageName,
+                            activity,
+                            extras,
+                            cancellationToken);
+
+                    lastReply = reply;
+
+                    Debug.WriteLine(
+                        $"[FastLaunchBarrierRetry] " +
+                        $"device={device.Name} " +
+                        $"package={packageName} " +
+                        $"attempt={attempts} " +
+                        $"accepted={reply?.IsAcceptedSuccess} " +
+                        $"operationId={reply?.OperationId} " +
+                        $"error={reply?.Error} " +
+                        $"message={reply?.Message}");
+                }
+
+                if (reply?.IsAcceptedSuccess == true)
+                {
+                    stopwatch.Stop();
+
+                    if (!string.IsNullOrWhiteSpace(reply.OperationId))
+                    {
+                        _ = VerifyFastLaunchInBackgroundAsync(
+                            device,
+                            packageName,
+                            reply.OperationId);
+                    }
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        device.MirrorError = null;
+                    });
+
+                    return new DeviceAppLaunchResult
+                    {
+                        Device = device,
+                        Success = true,
+                        PackageName = packageName,
+                        State = reply.Completed
+                            ? "COMPLETED"
+                            : "ACCEPTED",
+                        Message = reply.Message
+                            ?? "Agent가 앱 실행 명령을 접수했습니다.",
+                        OperationId = reply.OperationId,
+                        Attempts = attempts,
+                        ElapsedMs = stopwatch.ElapsedMilliseconds
+                    };
+                }
+
+                /*
+                 * 첫 번째 후보가 설치되지 않았다는 명시적 응답인 경우에만
+                 * 다음 후보를 시도합니다.
+                 *
+                 * 타임아웃/네트워크 오류에서는 첫 요청이 실제로 전달됐을 가능성이
+                 * 있으므로 중복 앱 실행을 막기 위해 다음 후보를 보내지 않습니다.
+                 */
+                if (!IsExplicitPackageUnavailable(reply))
+                {
+                    break;
+                }
+            }
+
+            stopwatch.Stop();
+
+            return FailedLaunchResult(
+                device,
+                lastReply?.TimedOut == true
+                    ? "TIMEOUT"
+                    : lastReply?.Error
+                        ?? "DISPATCH_FAILED",
+                lastReply?.Message
+                    ?? "Agent가 앱 실행 명령을 접수하지 않았습니다.",
+                attempts,
+                packageName: lastPackageName,
+                operationId: lastReply?.OperationId,
+                elapsedMs: stopwatch.ElapsedMilliseconds);
+        }
+
+        private static bool IsStopSequenceInProgress(
+            AgentCommandReply reply)
+        {
+            if (reply == null)
+            {
+                return false;
+            }
+
+            return
+                string.Equals(
+                    reply.Error,
+                    "stop_sequence_in_progress",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    reply.State,
+                    "stop_sequence_in_progress",
+                    StringComparison.OrdinalIgnoreCase) ||
+                (reply.Message?.IndexOf(
+                    "stop sequence",
+                    StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool IsExplicitPackageUnavailable(
+            AgentCommandReply reply)
+        {
+            if (reply == null)
+            {
+                return false;
+            }
+
+            if (reply.StatusCode == HttpStatusCode.NotFound)
+            {
+                return true;
+            }
+
+            string error = reply.Error ?? string.Empty;
+            string message = reply.Message ?? string.Empty;
+
+            return
+                error.IndexOf(
+                    "package_not_installed",
+                    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf(
+                    "package_not_found",
+                    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf(
+                    "package is not installed",
+                    StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// 빠른 명령 전송 UI를 막지 않는 후속 검증입니다.
+        /// 5초 간격으로 최대 4회만 조회하여 16대 환경의 HTTP 부하를 제한합니다.
+        /// </summary>
+        private async Task VerifyFastLaunchInBackgroundAsync(
+            Device device,
+            string packageName,
+            string operationId)
+        {
+            if (device == null ||
+                string.IsNullOrWhiteSpace(device.AgentHost) ||
+                string.IsNullOrWhiteSpace(operationId))
+            {
+                return;
+            }
+
+            int port = device.AgentStatusPort > 0
+                ? device.AgentStatusPort
+                : 18080;
+
+            try
+            {
+                int hostHash =
+                    StringComparer.OrdinalIgnoreCase
+                        .GetHashCode(device.AgentHost);
+
+                int staggerMs =
+                    5_000 +
+                    ((hostHash & 0x7FFF_FFFF) % 1_500);
+
+                await Task.Delay(staggerMs)
+                    .ConfigureAwait(false);
+
+                AgentOperationInfo lastOperation = null;
+
+                for (int attempt = 0; attempt < 4; attempt++)
+                {
+                    lastOperation =
+                        await AgentApi.GetOperationAsync(
+                            device.AgentHost,
+                            port,
+                            operationId,
+                            cancellationToken: CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                    if (lastOperation?.IsTerminal == true)
+                    {
+                        break;
+                    }
+
+                    if (attempt < 3)
+                    {
+                        await Task.Delay(5_000)
+                            .ConfigureAwait(false);
+                    }
+                }
+
+                Debug.WriteLine(
+                    $"[FastFleetVerify] " +
+                    $"device={device.Name} " +
+                    $"host={device.AgentHost}:{port} " +
+                    $"package={packageName} " +
+                    $"operationId={operationId} " +
+                    $"state={lastOperation?.State ?? "NO_RESPONSE"} " +
+                    $"completed={lastOperation?.Completed} " +
+                    $"message={lastOperation?.Message}");
+
+                if (lastOperation != null &&
+                    lastOperation.IsTerminal &&
+                    !lastOperation.Completed)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        device.MirrorError =
+                            $"앱 실행 확인 실패: " +
+                            $"{lastOperation.State} " +
+                            $"{lastOperation.Message}";
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[FastFleetVerify] " +
+                    $"device={device.Name} " +
+                    $"operationId={operationId} " +
+                    $"error={ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static bool IsCompletedLaunch(AgentOperationInfo operation)
+        {
+            return operation != null &&
+                   operation.Completed &&
+                   string.Equals(
+                       operation.State,
+                       "COMPLETED",
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool LooksLikePackageDispatchFailure(AgentOperationInfo operation)
+        {
+            string message = operation?.Message ?? string.Empty;
+            string state = operation?.State ?? string.Empty;
+
+            return
+                message.IndexOf("activity_launch_dispatch_failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("launch_failed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("package", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                message.IndexOf("not", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                string.Equals(state, "REJECTED", StringComparison.OrdinalIgnoreCase) &&
+                !operation.Retryable;
+        }
+
+        private static DeviceAppLaunchResult FailedLaunchResult(
+            Device device,
+            string state,
+            string message,
+            int attempts,
+            string packageName = null,
+            string operationId = null,
+            long elapsedMs = 0L)
+        {
+            return new DeviceAppLaunchResult
+            {
+                Device = device,
+                Success = false,
+                PackageName = packageName,
+                State = state,
+                Message = message,
+                OperationId = operationId,
+                Attempts = attempts,
+                ElapsedMs = elapsedMs
+            };
+        }
+
+        private static void LogLaunchOperation(
+            Device device,
+            string packageName,
+            int attempt,
+            AgentOperationInfo operation)
+        {
+            Debug.WriteLine(
+                $"[AppLaunch] device={device?.Name} " +
+                $"host={device?.AgentHost} " +
+                $"package={packageName} " +
+                $"attempt={attempt} " +
+                $"state={operation?.State ?? "null"} " +
+                $"completed={operation?.Completed} " +
+                $"retryable={operation?.Retryable} " +
+                $"message={operation?.Message}");
+        }
+
+        private static async Task SafeHideKeepAwakeAsync(
+            Device device,
+            CancellationToken cancellationToken)
+        {
+            if (device == null || string.IsNullOrWhiteSpace(device.AgentHost))
+                return;
+
+            try
+            {
+                await AgentApi.HideKeepAwakeAsync(
+                    device.AgentHost,
+                    device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080,
+                    cancellationToken);
+            }
+            catch
+            {
+                // 보조 Activity 정리 실패만으로 앱 실행 성공을 실패 처리하지 않습니다.
+            }
         }
 
         private void StartAppBtn_Click(object sender, RoutedEventArgs e)
@@ -942,72 +1948,257 @@ namespace MultiQuest_Management
             StartApp(device, index);
         }
 
-        // 병렬 처리로 변경 - HTTP Agent API 전용
-        private async void AllDeviceStartAppBtn_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 전체 기기 앱 실행 버튼입니다.
+        ///
+        /// 16대에 launch 명령을 동시에 전송하고 3.8초 안에
+        /// Agent 접수 결과를 표시합니다. 실제 APP_STATE_ACTIVE 완료는
+        /// 백그라운드 검증에서 확인하므로 이 UI를 지연시키지 않습니다.
+        /// </summary>
+        private async void AllDeviceStartAppBtn_Click(
+            object sender,
+            RoutedEventArgs e)
         {
             PlayClickSound();
 
+            if (!TryGetPkgIndex(sender, out int index))
+            {
+                return;
+            }
+
+            var targetDevices = Devices
+                .Where(device =>
+                    device != null &&
+                    !string.IsNullOrWhiteSpace(device.AgentHost))
+                .Take(16)
+                .ToList();
+
+            if (targetDevices.Count == 0)
+            {
+                ShowMsg(
+                    "Agent로 연결된 기기가 없습니다. " +
+                    "먼저 Agent 검색을 실행하세요.");
+                return;
+            }
+
+            PanelMetaDevice.Visibility = Visibility.Visible;
+            PanelXrExperience.Visibility = Visibility.Collapsed;
+            PanelXrCoding.Visibility = Visibility.Collapsed;
+            PanelXrEnglish.Visibility = Visibility.Collapsed;
+            SetSideButtonActive(BtnMetaDevice);
+
+            await ExecuteFastFleetLaunchAsync(
+                targetDevices,
+                _pkgNames[index],
+                extras: null,
+                resultTitle: "전체 기기 앱 실행");
+        }
+
+        /// <summary>
+        /// 전체 실행, 코딩 전체 실행, 영어 전체 실행에서 공통으로 사용하는
+        /// 5초 미만 명령 전송 파이프라인입니다.
+        /// </summary>
+        private async Task ExecuteFastFleetLaunchAsync(
+            IReadOnlyList<Device> targetDevices,
+            string[] candidates,
+            object extras,
+            string resultTitle)
+        {
+            if (_isFleetLaunchRunning)
+            {
+                ShowMsg("전체 앱 실행이 이미 진행 중입니다.");
+                return;
+            }
+
+            if (targetDevices == null ||
+                targetDevices.Count == 0)
+            {
+                ShowMsg("실행할 Agent 기기가 없습니다.");
+                return;
+            }
+
+            _isFleetLaunchRunning = true;
             this.IsEnabled = false;
+
+            _fleetLaunchCancelSource?.Cancel();
+            _fleetLaunchCancelSource?.Dispose();
+            _fleetLaunchCancelSource =
+                new CancellationTokenSource();
+
+            _statusCheckTimer?.Stop();
+
+            var stopwatch = Stopwatch.StartNew();
+
+            using var totalTimeoutCts =
+                CancellationTokenSource
+                    .CreateLinkedTokenSource(
+                        _fleetLaunchCancelSource.Token);
+
+            totalTimeoutCts.CancelAfter(
+                FleetLaunchTotalTimeoutMs);
+
+            var results =
+                new ConcurrentBag<DeviceAppLaunchResult>();
 
             try
             {
-                if (!TryGetPkgIndex(sender, out int index))
-                    return;
-
-                if (Devices.Count == 0)
-                {
-                    ShowMsg("연결된 기기가 없습니다.");
-                    return;
-                }
-
-                var targetDevices = Devices
-                    .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
-                    .ToList();
-
-                if (targetDevices.Count == 0)
-                {
-                    ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
-                    return;
-                }
-
-                PanelMetaDevice.Visibility   = Visibility.Visible;
-                PanelXrExperience.Visibility = Visibility.Collapsed;
-                PanelXrCoding.Visibility     = Visibility.Collapsed;
-                PanelXrEnglish.Visibility    = Visibility.Collapsed;
-                SetSideButtonActive(BtnMetaDevice);
-
-                string[] candidates = _pkgNames[index];
-
-                var failed = new ConcurrentBag<string>();
-
-                var tasks = targetDevices.Select(async device =>
-                {
-                    bool launched = await LaunchCandidatesByAgentAsync(
-                        device,
-                        candidates,
-                        extras: null,
-                        forceRestart: true);
-
-                    if (!launched)
-                        failed.Add($"{device.Name} ({device.AgentHost})");
-                });
+                Task[] tasks = targetDevices
+                    .Select(device =>
+                        LaunchOneFleetDeviceFastAsync(
+                            device,
+                            candidates,
+                            extras,
+                            results,
+                            totalTimeoutCts.Token))
+                    .ToArray();
 
                 await Task.WhenAll(tasks);
 
-                if (failed.Count > 0)
+                stopwatch.Stop();
+
+                DeviceAppLaunchResult[] orderedResults =
+                    results
+                        .OrderBy(result =>
+                            result.Device?.Name)
+                        .ThenBy(result =>
+                            result.Device?.AgentHost)
+                        .ToArray();
+
+                DeviceAppLaunchResult[] accepted =
+                    orderedResults
+                        .Where(result =>
+                            result.Success)
+                        .ToArray();
+
+                DeviceAppLaunchResult[] failed =
+                    orderedResults
+                        .Where(result =>
+                            !result.Success)
+                        .ToArray();
+
+                foreach (
+                    DeviceAppLaunchResult result
+                    in orderedResults)
                 {
-                    ShowMsg(
-                        $"일부 기기 앱 실행 실패: {failed.Count}개\n" +
-                        string.Join("\n", failed));
+                    Debug.WriteLine(
+                        $"[FastFleetResult] " +
+                        $"device={result.Device?.Name} " +
+                        $"host={result.Device?.AgentHost} " +
+                        $"success={result.Success} " +
+                        $"package={result.PackageName} " +
+                        $"state={result.State} " +
+                        $"operationId={result.OperationId} " +
+                        $"attempts={result.Attempts} " +
+                        $"elapsedMs={result.ElapsedMs} " +
+                        $"message={result.Message}");
                 }
-                else
-                {
-                    ShowMsg("전체 기기 앱 실행 성공");
-                }
+
+                int acceptedCount = accepted.Length;
+                int uncertainCount = failed.Count(result =>
+                    string.Equals(result.State, "TIMEOUT", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(result.State, "network_error", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(result.State, "TOTAL_TIMEOUT", StringComparison.OrdinalIgnoreCase));
+                int explicitFailureCount =
+                    targetDevices.Count - acceptedCount - uncertainCount;
+
+                string failureDetails = string.Join(
+                    "\n",
+                    failed.Select(result =>
+                        $"- {result.Device?.Name} ({result.Device?.AgentHost}) " +
+                        $"[{result.State}] {result.Message}"));
+
+                ShowMsg(
+                    $"{resultTitle} 명령 접수 결과\n\n" +
+                    $"접수 확인: {acceptedCount}/{targetDevices.Count}대\n" +
+                    $"응답 확인 불가: {uncertainCount}대\n" +
+                    $"명시적 실패: {explicitFailureCount}대\n" +
+                    $"소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초" +
+                    (string.IsNullOrWhiteSpace(failureDetails)
+                        ? ""
+                        : $"\n\n[확인 필요]\n{failureDetails}"));
+            }
+            catch (OperationCanceledException)
+            {
+                stopwatch.Stop();
+
+                ShowMsg(
+                    $"{resultTitle} 명령 전송 제한 시간 초과\n" +
+                    $"소요 시간: " +
+                    $"{stopwatch.Elapsed.TotalSeconds:F2}초\n" +
+                    "응답하지 않은 기기는 백그라운드에서 " +
+                    "추가 실행하지 않습니다.");
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+
+                ShowMsg(
+                    $"{resultTitle} 중 오류가 발생했습니다.\n" +
+                    $"{ex.GetType().Name}: {ex.Message}\n" +
+                    $"소요 시간: " +
+                    $"{stopwatch.Elapsed.TotalSeconds:F2}초");
             }
             finally
             {
+                _fleetLaunchCancelSource?.Dispose();
+                _fleetLaunchCancelSource = null;
+
+                _isFleetLaunchRunning = false;
+                _statusCheckTimer?.Start();
                 this.IsEnabled = true;
+            }
+        }
+
+        private async Task LaunchOneFleetDeviceFastAsync(
+            Device device,
+            string[] candidates,
+            object extras,
+            ConcurrentBag<DeviceAppLaunchResult> results,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _fleetLaunchGate
+                    .WaitAsync(cancellationToken);
+
+                try
+                {
+                    DeviceAppLaunchResult result =
+                        await LaunchCandidatesByAgentFastAsync(
+                            device,
+                            candidates,
+                            extras,
+                            cancellationToken);
+
+                    results.Add(result);
+                }
+                finally
+                {
+                    _fleetLaunchGate.Release();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                results.Add(
+                    FailedLaunchResult(
+                        device,
+                        "TOTAL_TIMEOUT",
+                        $"전체 명령 전송 제한 시간 " +
+                        $"{FleetLaunchTotalTimeoutMs}ms를 " +
+                        "초과했습니다.",
+                        0,
+                        elapsedMs:
+                            FleetLaunchTotalTimeoutMs));
+            }
+            catch (Exception ex)
+            {
+                results.Add(
+                    FailedLaunchResult(
+                        device,
+                        "CLIENT_EXCEPTION",
+                        $"{ex.GetType().Name}: " +
+                        $"{ex.Message}",
+                        0));
             }
         }
 
@@ -1055,125 +2246,656 @@ namespace MultiQuest_Management
         }
 
         // level + lesson 을 모든 연결 기기에 병렬 전송
-        private async Task StartCodingAppAsync(int level, int lesson)
+        private async Task StartCodingAppAsync(
+            int level,
+            int lesson)
         {
             var targetDevices = Devices
-                .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                .Where(device =>
+                    device != null &&
+                    !string.IsNullOrWhiteSpace(
+                        device.AgentHost))
+                .Take(16)
                 .ToList();
 
             if (targetDevices.Count == 0)
             {
-                ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
+                ShowMsg(
+                    "Agent로 연결된 기기가 없습니다. " +
+                    "먼저 Agent 검색을 실행하세요.");
                 return;
             }
 
-            PanelMetaDevice.Visibility   = Visibility.Visible;
-            PanelXrExperience.Visibility = Visibility.Collapsed;
-            PanelXrCoding.Visibility     = Visibility.Collapsed;
-            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            PanelMetaDevice.Visibility =
+                Visibility.Visible;
+            PanelXrExperience.Visibility =
+                Visibility.Collapsed;
+            PanelXrCoding.Visibility =
+                Visibility.Collapsed;
+            PanelXrEnglish.Visibility =
+                Visibility.Collapsed;
             SetSideButtonActive(BtnMetaDevice);
 
-            string[] candidates = _pkgNames[12]; // com.StoryWing.XR_Coding
+            string[] candidates =
+                _pkgNames[12];
 
-            var extras = new Dictionary<string, object>
-            {
-                ["stage"] = level,
-                ["lesson"] = lesson
-            };
+            var extras =
+                new Dictionary<string, object>
+                {
+                    // 구버전/신버전 Coding 앱의 키 차이를 모두 지원합니다.
+                    ["stage"] = level,
+                    ["level"] = level,
+                    ["lesson"] = lesson,
+                    ["unit"] = lesson,
+                    ["contentType"] = "coding"
+                };
 
-            var failed = new ConcurrentBag<string>();
-
-            var tasks = targetDevices.Select(async device =>
-            {
-                bool launched = await LaunchCandidatesByAgentAsync(
-                    device,
-                    candidates,
-                    extras,
-                    forceRestart: true);
-
-                if (!launched)
-                    failed.Add($"{device.Name} (stage={level + 1}, lesson={lesson})");
-            });
-
-            await Task.WhenAll(tasks);
-
-            if (failed.Count > 0)
-                ShowMsg($"일부 기기 코딩 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
-            else
-                ShowMsg($"전체 기기 코딩 앱 실행 성공 (Stage {level + 1} / Lesson {lesson})");
-        }
-
-        public async void StopDeviceApp(Device device, Action onCompleted = null)
-        {
-            if (device == null)
-            {
-                ShowMsg("기기를 확인하세요.");
-                onCompleted?.Invoke();
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(device.AgentHost))
-            {
-                ShowMsg("Agent로 연결된 기기가 아닙니다.");
-                onCompleted?.Invoke();
-                return;
-            }
-
-            bool ok = await StopDeviceByBestMethodAsync(device);
-
-            if (!ok)
-                ShowMsg($"{device.Name} 앱 종료 명령 전송 실패");
-
-            onCompleted?.Invoke();
+            await ExecuteReliableContentFleetAsync(
+                targetDevices,
+                candidates,
+                command: "set_content",
+                payload: extras,
+                resultTitle:
+                    $"코딩 앱 Stage {level + 1} / Lesson {lesson}");
         }
 
         /// <summary>
-        /// 단일 기기 앱 종료 — fastMode=false: fallbackPackages 허용 안전 경로
-        ///                        fastMode=true:  2.5s timeout 빠른 경로 (전체 종료용)
+        /// 코딩/영어 전용 신뢰성 파이프라인입니다.
+        /// 1) Activity launch extras 전달
+        /// 2) Agent가 동일 payload를 manifest receiver로 4회 재전송
+        /// 3) Unity 플러그인의 COMMAND_ACK를 operationId로 확인
         /// </summary>
-        private Task<bool> StopDeviceByBestMethodAsync(
-            Device device,
-            bool fastMode = false)
+        private async Task ExecuteReliableContentFleetAsync(
+            IReadOnlyList<Device> targetDevices,
+            string[] candidates,
+            string command,
+            Dictionary<string, object> payload,
+            string resultTitle)
         {
-            int port = device.AgentStatusPort > 0
-                ? device.AgentStatusPort
-                : 18080;
-
-            if (fastMode)
+            if (_isFleetLaunchRunning)
             {
-                // 전체 종료용 빠른 경로:
-                // fallbackPackages 없이 Agent stopAllStoryWing만 호출합니다.
-                return AgentApi.StopAllStoryWingFastAsync(
-                    host:            device.AgentHost,
-                    port:            port,
-                    goHome:          true,
-                    retryCount:      2,
-                    retryIntervalMs: 100,
-                    goHomeDelayMs:   250);
+                ShowMsg("다른 전체 실행/콘텐츠 명령이 이미 진행 중입니다.");
+                return;
             }
 
-            // 단일 기기 안전 경로: fallbackPackages 허용
-            var allPkgs = _pkgNames.SelectMany(c => c).Distinct();
-            return AgentApi.StopAllStoryWingAsync(
-                device.AgentHost,
-                port,
-                goHome: true,
-                fallbackPackages: allPkgs);
-        }
+            if (targetDevices == null || targetDevices.Count == 0)
+            {
+                ShowMsg("명령을 보낼 Agent 기기가 없습니다.");
+                return;
+            }
 
-        // 전체 기기 동시 종료 — 빠른 모드, 전체 목표 3초 내
-        private async void AllDeviceStopAppBtn_Click(object sender, RoutedEventArgs e)
-        {
-            PlayClickSound();
-
+            _isFleetLaunchRunning = true;
             this.IsEnabled = false;
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _fleetLaunchCancelSource?.Cancel();
+            _fleetLaunchCancelSource?.Dispose();
+            _fleetLaunchCancelSource = new CancellationTokenSource();
+
+            bool statusTimerWasEnabled =
+                _statusCheckTimer?.IsEnabled == true;
+            _statusCheckTimer?.Stop();
+
+            var stopwatch = Stopwatch.StartNew();
+            string batchId = Guid.NewGuid().ToString("N");
+
+            using var totalCts =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    _fleetLaunchCancelSource.Token);
+
+            totalCts.CancelAfter(FleetContentTotalTimeoutMs);
+
+            var results =
+                new ConcurrentBag<ContentDispatchResult>();
 
             try
             {
+                Task[] tasks = targetDevices
+                    .Select(device =>
+                        DispatchContentToDeviceAsync(
+                            device,
+                            candidates,
+                            command,
+                            payload,
+                            batchId,
+                            results,
+                            totalCts.Token))
+                    .ToArray();
+
+                await Task.WhenAll(tasks);
+                stopwatch.Stop();
+
+                ContentDispatchResult[] ordered = results
+                    .OrderBy(x => x.Device?.Name)
+                    .ThenBy(x => x.Device?.AgentHost)
+                    .ToArray();
+
+                int verified =
+                    ordered.Count(x => x.Verified);
+
+                int dispatched =
+                    ordered.Count(x =>
+                        x.Dispatched &&
+                        !x.Verified);
+
+                int failed =
+                    ordered.Length -
+                    verified -
+                    dispatched;
+
+                string details = string.Join(
+                    "\n",
+                    ordered
+                        .Where(x => !x.Dispatched)
+                        .Select(x =>
+                            $"- {x.Device?.Name} ({x.Device?.AgentHost}) " +
+                            $"[{x.State}] {x.Message}"));
+
+                ShowMsg(
+                    $"{resultTitle} 명령 결과\n\n" +
+                    $"앱 ACK 확인: {verified}대\n" +
+                    $"Agent 전송 접수: {dispatched}대\n" +
+                    $"명시적 실패: {failed}대\n" +
+                    $"대상: {targetDevices.Count}대\n" +
+                    $"소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초" +
+                    (string.IsNullOrWhiteSpace(details)
+                        ? ""
+                        : $"\n\n[전송 실패]\n{details}"));
+            }
+            catch (OperationCanceledException)
+            {
+                stopwatch.Stop();
+                ShowMsg(
+                    $"{resultTitle} 명령 제한 시간 초과\n" +
+                    $"소요 시간: {stopwatch.Elapsed.TotalSeconds:F2}초\n" +
+                    "일부 기기는 launch extras 또는 재전송 방송을 이미 받았을 수 있습니다.");
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                ShowMsg(
+                    $"{resultTitle} 명령 중 오류\n" +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                _fleetLaunchCancelSource?.Dispose();
+                _fleetLaunchCancelSource = null;
+                _isFleetLaunchRunning = false;
+
+                if (statusTimerWasEnabled && !_isShuttingDown)
+                    _statusCheckTimer?.Start();
+
+                this.IsEnabled = true;
+            }
+        }
+
+        private async Task DispatchContentToDeviceAsync(
+            Device device,
+            string[] candidates,
+            string command,
+            Dictionary<string, object> payload,
+            string batchId,
+            ConcurrentBag<ContentDispatchResult> results,
+            CancellationToken cancellationToken)
+        {
+            await _fleetContentGate
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            try
+            {
+                string deviceKey =
+                    !string.IsNullOrWhiteSpace(
+                        device?.AgentDeviceId)
+                        ? device.AgentDeviceId
+                        : device?.AgentHost
+                          ?? "unknown";
+
+                string requestId =
+                    $"{batchId}:{deviceKey}:{command}";
+
+                /*
+                 * launch extras는 가장 빠른 콜드 스타트 경로입니다.
+                 * FocusGuard/Activity 재사용으로 extras가 사라질 수 있으므로
+                 * 뒤의 Agent 장기 broadcast 재전송도 항상 함께 예약합니다.
+                 */
+                var launchPayload =
+                    new Dictionary<string, object>(
+                        payload ??
+                        new Dictionary<string, object>(),
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["requestId"] = requestId,
+                        ["command"] = command,
+                        ["issuedAtMs"] =
+                            DateTimeOffset.UtcNow
+                                .ToUnixTimeMilliseconds()
+                    };
+
+                DeviceAppLaunchResult launch =
+                    await LaunchCandidatesByAgentFastAsync(
+                        device,
+                        candidates,
+                        launchPayload,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                string packageName =
+                    !string.IsNullOrWhiteSpace(
+                        launch.PackageName)
+                        ? launch.PackageName
+                        : candidates?
+                            .FirstOrDefault(candidate =>
+                                !string.IsNullOrWhiteSpace(
+                                    candidate));
+
+                bool launchExplicitFailure =
+                    !launch.Success &&
+                    !string.Equals(
+                        launch.State,
+                        "TIMEOUT",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(
+                        launch.State,
+                        "network_error",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(
+                        launch.State,
+                        "TOTAL_TIMEOUT",
+                        StringComparison.OrdinalIgnoreCase);
+
+                if (launchExplicitFailure ||
+                    string.IsNullOrWhiteSpace(
+                        packageName))
+                {
+                    results.Add(
+                        new ContentDispatchResult
+                        {
+                            Device = device,
+                            PackageName = packageName,
+                            Dispatched = false,
+                            Verified = false,
+                            State =
+                                launch.State ??
+                                "LAUNCH_FAILED",
+                            Message =
+                                launch.Message ??
+                                "앱 실행 명령이 명시적으로 거부되었습니다."
+                        });
+
+                    return;
+                }
+
+                int port =
+                    device.AgentStatusPort > 0
+                        ? device.AgentStatusPort
+                        : 18080;
+
+                /*
+                 * 기존 AAR는 payload 문자열만 Unity에 전달할 수 있으므로
+                 * root payload와 canonical envelope 어느 쪽에서도 복구할 수 있게
+                 * command/requestId를 payload 내부에도 복제합니다.
+                 */
+                var commandPayload =
+                    new Dictionary<string, object>(
+                        payload ??
+                        new Dictionary<string, object>(),
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["requestId"] = requestId,
+                        ["command"] = command
+                    };
+
+                /*
+                 * 중요:
+                 * 여기서는 APP_STATE_ACTIVE와 COMMAND_ACK를 기다리지 않습니다.
+                 *
+                 * Agent가 요청을 접수하면 Quest 내부 scheduler가
+                 * 0,2,4,6,8,10,12,14,16초에 독립적으로 방송합니다.
+                 * WPF는 예약 접수까지만 확인하고 즉시 다음 기기로 진행합니다.
+                 */
+                AgentCommandReply commandReply =
+                    await AgentApi
+                        .SendReliableAppCommandDetailedAsync(
+                            host: device.AgentHost,
+                            port: port,
+                            packageName: packageName,
+                            command: command,
+                            args: commandPayload,
+                            requestId: requestId,
+                            retryCount:
+                                ContentCommandRetryCount,
+                            retryIntervalMs:
+                                ContentCommandRetryIntervalMs,
+                            cancellationToken:
+                                cancellationToken)
+                        .ConfigureAwait(false);
+
+                bool accepted =
+                    commandReply?.IsAcceptedSuccess == true;
+
+                bool deliveryUncertain =
+                    commandReply?.IsDeliveryUncertain == true;
+
+                bool dispatched =
+                    accepted ||
+                    deliveryUncertain;
+
+                string state =
+                    accepted
+                        ? "RETRY_SEQUENCE_QUEUED"
+                        : deliveryUncertain
+                            ? "DELIVERY_UNCERTAIN"
+                            : commandReply?.Error ??
+                              commandReply?.State ??
+                              "APP_COMMAND_REJECTED";
+
+                string message =
+                    accepted
+                        ? "Agent가 콘텐츠 명령 장기 재전송을 예약했습니다. " +
+                          "WPF는 Unity 시작/ACK를 기다리지 않습니다."
+                        : deliveryUncertain
+                            ? "Agent 응답 확인은 시간 초과됐지만 요청이 도착했을 " +
+                              "가능성이 있어 백그라운드 적용을 계속 기다립니다."
+                            : commandReply?.Message ??
+                              "Agent가 콘텐츠 명령 예약을 거부했습니다.";
+
+                Debug.WriteLine(
+                    $"[ContentFastDispatch] " +
+                    $"device={device.Name} " +
+                    $"host={device.AgentHost}:{port} " +
+                    $"package={packageName} " +
+                    $"launchState={launch.State} " +
+                    $"commandAccepted={accepted} " +
+                    $"deliveryUncertain={deliveryUncertain} " +
+                    $"operationId={commandReply?.OperationId} " +
+                    $"requestId={requestId}");
+
+                results.Add(
+                    new ContentDispatchResult
+                    {
+                        Device = device,
+                        PackageName = packageName,
+                        Dispatched = dispatched,
+                        Verified =
+                            commandReply?.Completed == true,
+                        State = state,
+                        Message = message
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                results.Add(
+                    new ContentDispatchResult
+                    {
+                        Device = device,
+                        Dispatched = false,
+                        Verified = false,
+                        State = "TIMEOUT",
+                        Message =
+                            "6.5초 안에 launch/재전송 예약을 완료하지 못했습니다."
+                    });
+            }
+            catch (Exception ex)
+            {
+                results.Add(
+                    new ContentDispatchResult
+                    {
+                        Device = device,
+                        Dispatched = false,
+                        Verified = false,
+                        State = "CLIENT_EXCEPTION",
+                        Message =
+                            $"{ex.GetType().Name}: " +
+                            $"{ex.Message}"
+                    });
+            }
+            finally
+            {
+                _fleetContentGate.Release();
+            }
+        }
+
+        /// <summary>
+        /// 개별 창에서 await 및 취소가 가능한 종료 API입니다.
+        /// DeviceWindow가 닫히면 전달된 CancellationToken으로 대기만 취소하고,
+        /// Quest에 이미 접수된 0초/1초/2초 STOP 시퀀스는 계속 진행됩니다.
+        /// </summary>
+        public async Task<AgentCommandReply> StopDeviceAppAsync(
+            Device device,
+            CancellationToken cancellationToken = default,
+            bool showErrorUi = false)
+        {
+            if (device == null ||
+                string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                var invalidReply = new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = false,
+                    Error = "invalid_device",
+                    Message = "Agent 기기 정보가 없습니다."
+                };
+
+                if (showErrorUi)
+                    ShowMsg(invalidReply.Message);
+
+                return invalidReply;
+            }
+
+            try
+            {
+                AgentCommandReply reply =
+                    await StopDeviceUnifiedDetailedAsync(
+                        device,
+                        cancellationToken);
+
+                bool deliveryUncertain =
+                    reply?.TimedOut == true ||
+                    string.Equals(
+                        reply?.Error,
+                        "timeout",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(
+                        reply?.Error,
+                        "network_error",
+                        StringComparison.OrdinalIgnoreCase);
+
+                if (reply?.IsAcceptedSuccess == true ||
+                    deliveryUncertain)
+                {
+                    // Agent 응답은 즉시 반환되지만 실제 STOP은
+                    // Quest 내부에서 0초/1초/2초에 진행됩니다.
+                    await Task.Delay(
+                        FleetStopSettleDelayMs,
+                        cancellationToken);
+
+                    if (deliveryUncertain)
+                    {
+                        Debug.WriteLine(
+                            $"[StopDeviceAppAsync] delivery uncertain. " +
+                            $"device={device.Name} host={device.AgentHost} " +
+                            $"error={reply?.Error} message={reply?.Message}");
+                    }
+
+                    return reply;
+                }
+
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        $"{device.Name} 앱 종료 요청이 거부되었습니다.\n" +
+                        $"상태: {reply?.Error ?? "unknown_error"}\n" +
+                        $"내용: {reply?.Message ?? "Agent 응답을 확인하지 못했습니다."}");
+                }
+
+                return reply;
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                // DeviceWindow 닫기 또는 사용자 취소입니다.
+                // 예외 UI 없이 호출자에게 취소를 전달합니다.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[StopDeviceAppAsync] device={device.Name} error={ex}");
+
+                var failureReply = new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = true,
+                    Error = "client_exception",
+                    Message = $"{ex.GetType().Name}: {ex.Message}"
+                };
+
+                if (showErrorUi)
+                {
+                    ShowMsg(
+                        $"{device.Name} 앱 종료 중 오류가 발생했습니다.\n" +
+                        failureReply.Message);
+                }
+
+                return failureReply;
+            }
+        }
+
+        /// <summary>
+        /// 기존 호출부 호환용 async-void 래퍼입니다.
+        /// DeviceWindow는 StopDeviceAppAsync를 직접 await합니다.
+        /// </summary>
+        public async void StopDeviceApp(
+            Device device,
+            Action onCompleted = null)
+        {
+            try
+            {
+                await StopDeviceAppAsync(
+                    device,
+                    CancellationToken.None,
+                    showErrorUi: true);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine(
+                    $"[StopDeviceApp] cancelled. device={device?.Name}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[StopDeviceApp] unhandled wrapper error: {ex}");
+
+                ShowMsg(
+                    $"{device?.Name ?? "기기"} 앱 종료 중 오류가 발생했습니다.\n" +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                try
+                {
+                    onCompleted?.Invoke();
+                }
+                catch (Exception callbackEx)
+                {
+                    Debug.WriteLine(
+                        $"[StopDeviceApp] completion callback ignored: " +
+                        $"{callbackEx.GetType().Name}: {callbackEx.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 개별/전체 종료가 같은 Agent API와 같은 0초/1초/2초 정책을
+        /// 사용하도록 하는 공통 상세 경로입니다.
+        /// </summary>
+        private Task<AgentCommandReply> StopDeviceUnifiedDetailedAsync(
+            Device device,
+            CancellationToken cancellationToken = default)
+        {
+            if (device == null ||
+                string.IsNullOrWhiteSpace(device.AgentHost))
+            {
+                return Task.FromResult(
+                    new AgentCommandReply
+                    {
+                        Ok = false,
+                        Accepted = false,
+                        Completed = false,
+                        Retryable = false,
+                        Error = "invalid_device",
+                        Message = "Agent 기기 정보가 없습니다."
+                    });
+            }
+
+            int port =
+                device.AgentStatusPort > 0
+                    ? device.AgentStatusPort
+                    : 18080;
+
+            return AgentApi.StopAllStoryWingFastDetailedAsync(
+                host: device.AgentHost,
+                port: port,
+                goHome: false,
+                retryCount: 3,
+                retryIntervalMs: 1_000,
+                goHomeDelayMs: 0,
+                cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// 기존 호출부 호환용 bool 래퍼입니다.
+        /// 개별과 전체 모두 동일한 종료 시퀀스를 사용합니다.
+        /// timeout은 요청이 이미 처리 중일 수 있으므로 확정 실패로 세지 않습니다.
+        /// </summary>
+        private async Task<bool> StopDeviceByBestMethodAsync(
+            Device device,
+            bool fastMode = true)
+        {
+            AgentCommandReply reply =
+                await StopDeviceUnifiedDetailedAsync(
+                    device,
+                    CancellationToken.None);
+
+            return reply?.IsAcceptedSuccess == true;
+        }
+
+        // 전체 기기 종료:
+        // WPF는 Quest마다 HTTP 요청을 한 번만 보내고,
+        // 각 Agent가 내부에서 0초/1초/2초에 현재 앱 STOP을 재전송합니다.
+        private async void AllDeviceStopAppBtn_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            PlayClickSound();
+            this.IsEnabled = false;
+
+            var sw = Stopwatch.StartNew();
+            bool statusTimerWasEnabled =
+                _statusCheckTimer?.IsEnabled == true;
+
+            try
+            {
+                try
+                {
+                    _fleetLaunchCancelSource?.Cancel();
+                }
+                catch
+                {
+                }
+
+                _statusCheckTimer?.Stop();
+
                 var agentDevices = Devices
-                    .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                    .Where(device =>
+                        device != null &&
+                        !string.IsNullOrWhiteSpace(
+                            device.AgentHost))
                     .ToList();
 
                 if (agentDevices.Count == 0)
@@ -1182,42 +2904,102 @@ namespace MultiQuest_Management
                     return;
                 }
 
-                var failed = new ConcurrentBag<string>();
+                var uncertain =
+                    new ConcurrentBag<string>();
+                var failed =
+                    new ConcurrentBag<string>();
 
-                // 전체 종료는 빠른 모드 사용:
-                // Agent에 목령만 빠르게 전달하고, 실제 앱 종료는 Agent 내부 백그라운드에서 처리합니다.
-                var tasks = agentDevices.Select(async device =>
-                {
-                    bool ok = await StopDeviceByBestMethodAsync(
-                        device,
-                        fastMode: true);
+                using var stopGate =
+                    new SemaphoreSlim(
+                        FleetStopConcurrency,
+                        FleetStopConcurrency);
 
-                    if (!ok)
-                        failed.Add(
-                            $"{device.Name} ({device.AgentHost}:{(device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080)})");
-                }).ToList();
+                Task[] tasks = agentDevices
+                    .Select(async device =>
+                    {
+                        await stopGate
+                            .WaitAsync()
+                            .ConfigureAwait(false);
+
+                        try
+                        {
+                            AgentCommandReply reply =
+                                await StopDeviceUnifiedDetailedAsync(
+                                    device,
+                                    CancellationToken.None)
+                                .ConfigureAwait(false);
+
+                            if (reply?.IsAcceptedSuccess == true)
+                            {
+                                return;
+                            }
+
+                            string detail =
+                                $"{device.Name} ({device.AgentHost}:" +
+                                $"{(device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080)}) " +
+                                $"[{reply?.Error ?? "no_response"}] " +
+                                $"{reply?.Message ?? "Agent 응답 없음"}";
+
+                            if (reply?.IsDeliveryUncertain == true)
+                            {
+                                uncertain.Add(detail);
+                            }
+                            else
+                            {
+                                failed.Add(detail);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            failed.Add(
+                                $"{device.Name} ({device.AgentHost}) " +
+                                $"{ex.GetType().Name}: {ex.Message}");
+                        }
+                        finally
+                        {
+                            stopGate.Release();
+                        }
+                    })
+                    .ToArray();
 
                 await Task.WhenAll(tasks);
+                await Task.Delay(FleetStopSettleDelayMs);
 
                 sw.Stop();
 
-                if (failed.Count > 0)
-                {
-                    ShowMsg(
-                        $"전체 종료 명령 전송 완료: {agentDevices.Count - failed.Count}/{agentDevices.Count}개 성공\n" +
-                        $"소요 시간: {sw.Elapsed.TotalSeconds:F1}초\n\n" +
-                        $"응답 실패 기기:\n{string.Join("\n", failed)}");
-                }
-                else
-                {
-                    ShowMsg(
-                        $"전체 기기 앱 종료 명령 전송 완료\n" +
-                        $"대상: {agentDevices.Count}개\n" +
-                        $"소요 시간: {sw.Elapsed.TotalSeconds:F1}초");
-                }
+                int acceptedCount =
+                    agentDevices.Count -
+                    uncertain.Count -
+                    failed.Count;
+
+                string details = string.Join(
+                    "\n",
+                    uncertain
+                        .Select(x => "[응답 확인 불가] " + x)
+                        .Concat(
+                            failed.Select(x =>
+                                "[명시적 실패] " + x))
+                        .OrderBy(x => x));
+
+                ShowMsg(
+                    "전체 기기 종료 시퀀스 접수 결과\n\n" +
+                    $"접수 확인: {acceptedCount}/{agentDevices.Count}대\n" +
+                    $"응답 확인 불가: {uncertain.Count}대\n" +
+                    $"명시적 실패: {failed.Count}대\n" +
+                    "Coding/English 우선 STOP: 0초 / 1초 / 2초\n" +
+                    $"소요 시간: {sw.Elapsed.TotalSeconds:F2}초" +
+                    (string.IsNullOrWhiteSpace(details)
+                        ? ""
+                        : $"\n\n[확인 필요]\n{details}"));
             }
             finally
             {
+                if (statusTimerWasEnabled &&
+                    !_isShuttingDown)
+                {
+                    _statusCheckTimer?.Start();
+                }
+
                 this.IsEnabled = true;
             }
         }
@@ -1354,10 +3136,10 @@ namespace MultiQuest_Management
 
                 ApplyRtspAgentsToDeviceTiles(rtspAgents);
 
-                PanelMetaDevice.Visibility   = Visibility.Visible;
+                PanelMetaDevice.Visibility = Visibility.Visible;
                 PanelXrExperience.Visibility = Visibility.Collapsed;
-                PanelXrCoding.Visibility     = Visibility.Collapsed;
-                PanelXrEnglish.Visibility    = Visibility.Collapsed;
+                PanelXrCoding.Visibility = Visibility.Collapsed;
+                PanelXrEnglish.Visibility = Visibility.Collapsed;
                 SetSideButtonActive(BtnMetaDevice);
 
                 // Agent 검색 후 즉시 상태 업데이트
@@ -1469,34 +3251,7 @@ namespace MultiQuest_Management
                     device.Serial = agent.Serial;
                 }
 
-                // 이름 설정 우선순위 (빈 문자열과 공백 체크 강화):
-                // 1. Agent가 보낸 고유 식별 이름 (deviceName) - 비어있지 않고 공백이 아닐 때만
-                // 2. Settings에서 시리얼로 매핑한 이름
-                // 3. Agent의 Model 정보 (Quest 3, Quest 3S 등)
-                // 4. Serial 또는 Host
-                if (!string.IsNullOrWhiteSpace(agent.DeviceName))
-                {
-                    device.Name = agent.DeviceName.Trim();
-                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Agent: '{device.Name}'");
-                }
-                else if (!string.IsNullOrEmpty(device.Serial) && 
-                    _serialNameDic.TryGetValue(device.Serial, out var customName) &&
-                    !string.IsNullOrWhiteSpace(customName))
-                {
-                    device.Name = customName.Trim();
-                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Settings: '{device.Name}'");
-                }
-                else if (!string.IsNullOrWhiteSpace(agent.Model) &&
-                         (string.IsNullOrWhiteSpace(device.Name) || device.Name == device.Serial || device.Name == host))
-                {
-                    device.Name = agent.Model.Trim();
-                    Debug.WriteLine($"[ApplyAgents] Device {host} name from Model: '{device.Name}'");
-                }
-                else if (string.IsNullOrWhiteSpace(device.Name))
-                {
-                    device.Name = !string.IsNullOrEmpty(device.Serial) ? device.Serial : host;
-                    Debug.WriteLine($"[ApplyAgents] Device {host} name fallback: '{device.Name}'");
-                }
+                ApplyResolvedAgentName(agent, device);
 
                 bool needNewTile =
                     device.Rtsp == null ||
@@ -1555,8 +3310,8 @@ namespace MultiQuest_Management
                     continue;
                 }
 
-                int capturedDelay       = delayMs;
-                var capturedDevice      = device;
+                int capturedDelay = delayMs;
+                var capturedDevice = device;
                 int capturedStreamCount = activeStreamCount;
 
                 _ = Task.Run(async () =>
@@ -1654,6 +3409,24 @@ namespace MultiQuest_Management
 
         private void OnClose(object sender, EventArgs e)
         {
+            // 공유 LibVLC를 Dispose하기 전에 소유 중인 DeviceWindow를 먼저 닫습니다.
+            // 그렇지 않으면 개인 창의 MediaPlayer가 공유 LibVLC를 사용하는 도중
+            // MainWindow가 LibVLC를 먼저 Dispose하는 경쟁이 발생할 수 있습니다.
+            try
+            {
+                if (_deviceWindow != null)
+                {
+                    _deviceWindow.Closed -= DeviceWindow_Closed;
+                    _deviceWindow.Close();
+                    _deviceWindow = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[MainWindow] DeviceWindow close during shutdown ignored: {ex.Message}");
+            }
+
             // 이벤트 구독 해제 및 타이머 정지
             try { SettingsService.Instance.Changed -= OnChangeSerialName; } catch { }
             try { _statusCheckTimer?.Stop(); } catch { }
@@ -1661,6 +3434,10 @@ namespace MultiQuest_Management
             try { _profileAutoTimer?.Stop(); } catch { }
             try { _cpuSampleTimer?.Dispose(); } catch { }
             try { _cpuCounter?.Dispose(); } catch { }
+            try { _fleetLaunchCancelSource?.Cancel(); } catch { }
+            try { _fleetLaunchCancelSource?.Dispose(); } catch { }
+            try { _fleetLaunchGate?.Dispose(); } catch { }
+            try { _fleetContentGate?.Dispose(); } catch { }
 
             // RTSP 정리
             foreach (var device in Devices)
@@ -1681,7 +3458,7 @@ namespace MultiQuest_Management
 
         private void MaximizeRestoreWindow_Click(object sender, RoutedEventArgs e)
         {
-            if (WindowState == WindowState.Maximized || 
+            if (WindowState == WindowState.Maximized ||
                 (Width == SystemParameters.WorkArea.Width && Height == SystemParameters.WorkArea.Height))
             {
                 // 복원
@@ -1902,7 +3679,7 @@ namespace MultiQuest_Management
                 var oldRtsp = device.Rtsp;
                 await Task.Run(() =>
                 {
-                    try { oldRtsp?.Stop();    } catch { }
+                    try { oldRtsp?.Stop(); } catch { }
                     try { oldRtsp?.Dispose(); } catch { }
                 });
 
@@ -1914,55 +3691,55 @@ namespace MultiQuest_Management
 
                 if (string.IsNullOrWhiteSpace(device.RtspUrl)) return;
 
-                    // 3) 새 플레이어 생성 및 시작
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        if (string.IsNullOrWhiteSpace(device.RtspUrl)) return;
-
-                        var agent = new QuestAgentInfo
-                        {
-                            Host       = host,
-                            Ip         = host,
-                            StatusPort = device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080,
-                            RtspUrl    = device.RtspUrl,
-                            RtspPort   = 8554,
-                            Model      = device.Name,
-                            StreamState = "RUNNING",
-                            Battery    = device.BatteryLevel
-                        };
-
-                        // URL 변경 재생성은 항상 HW 디코딩으로 리셋 (새 세션이므로)
-                        string stallKey = $"stall:{host}";
-                        lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(stallKey); }
-
-                        var newRtsp = new RtspTileViewModel(
-                            _rtspLibVlc,
-                            agent,
-                            _rtspQualityManager,
-                            disableHardwareDecoding: false,
-                            profile: _operationProfile);
-
-                        newRtsp.FrozenDetected += (s, _) => OnRtspFrozen(device);
-                        newRtsp.VideoAliveRestored += (s, _) =>
-                        {
-                            lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(stallKey); }
-                        };
-
-                        device.Rtsp = newRtsp;
-
-                        int activeStreams = Math.Max(1, Devices.Count(d => d.Rtsp != null));
-                        try { newRtsp.Start(activeStreams); }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[RTSP] ForceRecreate Start failed: {ex.Message}");
-                        }
-                    });
-                } // end try
-                finally
+                // 3) 새 플레이어 생성 및 시작
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    lock (_rtspHealthLock) { _rtspRestartInProgress.Remove(host); }
-                }
+                    if (string.IsNullOrWhiteSpace(device.RtspUrl)) return;
+
+                    var agent = new QuestAgentInfo
+                    {
+                        Host = host,
+                        Ip = host,
+                        StatusPort = device.AgentStatusPort > 0 ? device.AgentStatusPort : 18080,
+                        RtspUrl = device.RtspUrl,
+                        RtspPort = 8554,
+                        Model = device.Name,
+                        StreamState = "RUNNING",
+                        Battery = device.BatteryLevel
+                    };
+
+                    // URL 변경 재생성은 항상 HW 디코딩으로 리셋 (새 세션이므로)
+                    string stallKey = $"stall:{host}";
+                    lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(stallKey); }
+
+                    var newRtsp = new RtspTileViewModel(
+                        _rtspLibVlc,
+                        agent,
+                        _rtspQualityManager,
+                        disableHardwareDecoding: false,
+                        profile: _operationProfile);
+
+                    newRtsp.FrozenDetected += (s, _) => OnRtspFrozen(device);
+                    newRtsp.VideoAliveRestored += (s, _) =>
+                    {
+                        lock (_rtspHealthLock) { _rtspHardRestartCounts.Remove(stallKey); }
+                    };
+
+                    device.Rtsp = newRtsp;
+
+                    int activeStreams = Math.Max(1, Devices.Count(d => d.Rtsp != null));
+                    try { newRtsp.Start(activeStreams); }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[RTSP] ForceRecreate Start failed: {ex.Message}");
+                    }
+                });
+            } // end try
+            finally
+            {
+                lock (_rtspHealthLock) { _rtspRestartInProgress.Remove(host); }
             }
+        }
 
         /// <summary>
         /// Agent RUNNING 상태인데 WPF RTSP 플레이어가 첫 프레임/영상 신호를 못 받은 경우 자동 복구
@@ -2481,7 +4258,7 @@ namespace MultiQuest_Management
 
                     // 1. 화면 깨우기 + 컡포 재시작 병렬 실행
                     Debug.WriteLine($"[Refresh] {device.Name} Wake + restartCapture 병렬 요청");
-                    var wakeTask    = AgentApi.WakeScreenAsync(device.AgentHost, port, keepAwake: true);
+                    var wakeTask = AgentApi.WakeScreenAsync(device.AgentHost, port, keepAwake: true);
                     var restartTask = AgentApi.RestartCaptureAsync(device.AgentHost, port);
                     await Task.WhenAll(wakeTask, restartTask);
                     Debug.WriteLine($"[Refresh] {device.Name} restartCapture={restartTask.Result}");
@@ -2493,7 +4270,7 @@ namespace MultiQuest_Management
                         await Task.Delay(500);
                         status = await AgentApi.GetStatusFastAsync(device.AgentHost, port);
                         if (status != null &&
-                            (string.Equals(status.StreamState, "RUNNING",  StringComparison.OrdinalIgnoreCase) ||
+                            (string.Equals(status.StreamState, "RUNNING", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(status.StreamState, "STARTING", StringComparison.OrdinalIgnoreCase)))
                             break;
                     }
@@ -2578,100 +4355,114 @@ namespace MultiQuest_Management
         private void SetSideButtonActive(Button active)
         {
             // 모든 버튼 인라인 템플릿 → Background 직접 변경
-            BtnMetaDevice.Background   = ReferenceEquals(active, BtnMetaDevice)   ? _sideActive : _sideNormal;
+            BtnMetaDevice.Background = ReferenceEquals(active, BtnMetaDevice) ? _sideActive : _sideNormal;
             BtnXrExperience.Background = ReferenceEquals(active, BtnXrExperience) ? _sideActive : _sideNormal;
-            BtnXrCoding.Background     = ReferenceEquals(active, BtnXrCoding)     ? _sideActive : _sideNormal;
-            BtnXrEnglish.Background    = ReferenceEquals(active, BtnXrEnglish)    ? _sideActive : _sideNormal;
+            BtnXrCoding.Background = ReferenceEquals(active, BtnXrCoding) ? _sideActive : _sideNormal;
+            BtnXrEnglish.Background = ReferenceEquals(active, BtnXrEnglish) ? _sideActive : _sideNormal;
         }
 
         private void BtnMetaDevice_Click(object sender, RoutedEventArgs e)
         {
-            PanelMetaDevice.Visibility   = Visibility.Visible;
+            PanelMetaDevice.Visibility = Visibility.Visible;
             PanelXrExperience.Visibility = Visibility.Collapsed;
-            PanelXrCoding.Visibility     = Visibility.Collapsed;
-            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            PanelXrCoding.Visibility = Visibility.Collapsed;
+            PanelXrEnglish.Visibility = Visibility.Collapsed;
             SetSideButtonActive(BtnMetaDevice);
         }
 
         private void BtnXrExperience_Click(object sender, RoutedEventArgs e)
         {
-            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelMetaDevice.Visibility = Visibility.Collapsed;
             PanelXrExperience.Visibility = Visibility.Visible;
-            PanelXrCoding.Visibility     = Visibility.Collapsed;
-            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            PanelXrCoding.Visibility = Visibility.Collapsed;
+            PanelXrEnglish.Visibility = Visibility.Collapsed;
             SetSideButtonActive(BtnXrExperience);
         }
 
         private void BtnXrCoding_Click(object sender, RoutedEventArgs e)
         {
-            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelMetaDevice.Visibility = Visibility.Collapsed;
             PanelXrExperience.Visibility = Visibility.Collapsed;
-            PanelXrCoding.Visibility     = Visibility.Visible;
-            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            PanelXrCoding.Visibility = Visibility.Visible;
+            PanelXrEnglish.Visibility = Visibility.Collapsed;
             SetSideButtonActive(BtnXrCoding);
         }
 
         private void BtnXrEnglish_Click(object sender, RoutedEventArgs e)
         {
-            PanelMetaDevice.Visibility   = Visibility.Collapsed;
+            PanelMetaDevice.Visibility = Visibility.Collapsed;
             PanelXrExperience.Visibility = Visibility.Collapsed;
-            PanelXrCoding.Visibility     = Visibility.Collapsed;
-            PanelXrEnglish.Visibility    = Visibility.Visible;
+            PanelXrCoding.Visibility = Visibility.Collapsed;
+            PanelXrEnglish.Visibility = Visibility.Visible;
             SetSideButtonActive(BtnXrEnglish);
         }
 
         // ====================== 영어 앱 전용 버튼 ======================
         // 아이콘(Tag=0~9) 클릭 → --ei stage {Tag} 전달
         // Unity 수신: getIntExtra("stage", 0)
-        private async void EnglishAppBtn_Click(object sender, RoutedEventArgs e)
+        private async void EnglishAppBtn_Click(
+            object sender,
+            RoutedEventArgs e)
         {
             PlayClickSound();
-            if (sender is not Button btn) return;
-            if (!int.TryParse(btn.Tag as string, out int stage) || stage < 0 || stage > 9) return;
+
+            if (sender is not Button button)
+            {
+                return;
+            }
+
+            if (!int.TryParse(
+                    button.Tag as string,
+                    out int stage) ||
+                stage < 0 ||
+                stage > 11)
+            {
+                return;
+            }
 
             var targetDevices = Devices
-                .Where(d => !string.IsNullOrWhiteSpace(d.AgentHost))
+                .Where(device =>
+                    device != null &&
+                    !string.IsNullOrWhiteSpace(
+                        device.AgentHost))
+                .Take(16)
                 .ToList();
 
             if (targetDevices.Count == 0)
             {
-                ShowMsg("Agent로 연결된 기기가 없습니다. 먼저 Agent 검색을 실행하세요.");
+                ShowMsg(
+                    "Agent로 연결된 기기가 없습니다. " +
+                    "먼저 Agent 검색을 실행하세요.");
                 return;
             }
 
-            PanelMetaDevice.Visibility   = Visibility.Visible;
-            PanelXrExperience.Visibility = Visibility.Collapsed;
-            PanelXrCoding.Visibility     = Visibility.Collapsed;
-            PanelXrEnglish.Visibility    = Visibility.Collapsed;
+            PanelMetaDevice.Visibility =
+                Visibility.Visible;
+            PanelXrExperience.Visibility =
+                Visibility.Collapsed;
+            PanelXrCoding.Visibility =
+                Visibility.Collapsed;
+            PanelXrEnglish.Visibility =
+                Visibility.Collapsed;
             SetSideButtonActive(BtnMetaDevice);
 
-            string[] candidates = _pkgNames[13];
+            string[] candidates =
+                _pkgNames[13];
 
-            var extras = new Dictionary<string, object>
-            {
-                ["stage"] = stage
-            };
+            var extras =
+                new Dictionary<string, object>
+                {
+                    ["stage"] = stage,
+                    ["level"] = stage,
+                    ["contentType"] = "english"
+                };
 
-            var failed = new ConcurrentBag<string>();
-
-            var tasks = targetDevices.Select(async device =>
-            {
-                bool launched = await LaunchCandidatesByAgentAsync(
-                    device,
-                    candidates,
-                    extras,
-                    forceRestart: true);
-
-                if (!launched)
-                    failed.Add($"{device.Name} (stage={stage})");
-            });
-
-            await Task.WhenAll(tasks);
-
-            if (failed.Count > 0)
-                ShowMsg($"일부 기기 영어 앱 실행 실패: {failed.Count}개\n{string.Join("\n", failed)}");
-            else
-                ShowMsg($"전체 기기 영어 앱 실행 성공 (Stage {stage + 1})");
+            await ExecuteReliableContentFleetAsync(
+                targetDevices,
+                candidates,
+                command: "set_content",
+                payload: extras,
+                resultTitle: $"영어 앱 Stage {stage + 1}");
         }
 
         private void OpenSettings_Click(object sender, RoutedEventArgs e)
@@ -2705,7 +4496,7 @@ namespace MultiQuest_Management
             var connected = Devices.Where(d => d.Status == "Connected").ToList();
             if (connected.Count == 0) { ShowMsg("연결된 기기가 없습니다."); return; }
 
-            const string resetAppPkg      = "com.StoryWing.ResetRoomDataApp";
+            const string resetAppPkg = "com.StoryWing.ResetRoomDataApp";
             const string resetAppActivity = "com.unity3d.player.UnityPlayerActivity";
 
             var appResults = new ConcurrentBag<(string name, bool launched)>();
@@ -2726,7 +4517,7 @@ namespace MultiQuest_Management
             await Task.WhenAll(tasks);
 
             int successCount = appResults.Count(r => r.launched);
-            int failCount    = appResults.Count(r => !r.launched);
+            int failCount = appResults.Count(r => !r.launched);
 
             string summary = string.Join("\n", appResults
                 .OrderBy(r => r.name)
@@ -2747,6 +4538,190 @@ namespace MultiQuest_Management
             => throw new NotImplementedException();
     }
 
+    internal sealed class AgentNameRecoveryStore
+    {
+        private readonly object _lock = new();
+        private readonly string _filePath;
+        private readonly Dictionary<string, string> _names;
+
+        private AgentNameRecoveryStore(
+            string filePath,
+            Dictionary<string, string> names)
+        {
+            _filePath = filePath;
+            _names = names ??
+                new Dictionary<string, string>(
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
+        public static AgentNameRecoveryStore Load()
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "MultiQuest Management");
+
+            string filePath = Path.Combine(
+                directory,
+                "agent-name-cache.json");
+
+            try
+            {
+                Directory.CreateDirectory(directory);
+
+                if (File.Exists(filePath))
+                {
+                    string json = File.ReadAllText(filePath);
+                    var loaded = JsonSerializer.Deserialize<
+                        Dictionary<string, string>>(json);
+
+                    if (loaded != null)
+                    {
+                        return new AgentNameRecoveryStore(
+                            filePath,
+                            new Dictionary<string, string>(
+                                loaded,
+                                StringComparer.OrdinalIgnoreCase));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[NameRecovery] cache load failed: {ex.Message}");
+            }
+
+            return new AgentNameRecoveryStore(
+                filePath,
+                new Dictionary<string, string>(
+                    StringComparer.OrdinalIgnoreCase));
+        }
+
+        public bool TryGet(
+            IEnumerable<string> keys,
+            out string name)
+        {
+            name = null;
+
+            if (keys == null)
+                return false;
+
+            lock (_lock)
+            {
+                foreach (string rawKey in keys)
+                {
+                    string key = rawKey?.Trim();
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+
+                    if (_names.TryGetValue(key, out string value) &&
+                        !string.IsNullOrWhiteSpace(value))
+                    {
+                        name = value.Trim();
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        public void Put(
+            IEnumerable<string> keys,
+            string name)
+        {
+            string normalizedName = NormalizeName(name);
+            if (string.IsNullOrWhiteSpace(normalizedName) ||
+                keys == null)
+            {
+                return;
+            }
+
+            bool changed = false;
+
+            lock (_lock)
+            {
+                foreach (string rawKey in keys)
+                {
+                    string key = rawKey?.Trim();
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+
+                    if (!_names.TryGetValue(key, out string oldName) ||
+                        !string.Equals(
+                            oldName,
+                            normalizedName,
+                            StringComparison.Ordinal))
+                    {
+                        _names[key] = normalizedName;
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    SaveLocked();
+                }
+            }
+        }
+
+        private void SaveLocked()
+        {
+            try
+            {
+                string directory = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                    Directory.CreateDirectory(directory);
+
+                string tempPath = _filePath + ".tmp";
+                string json = JsonSerializer.Serialize(
+                    _names,
+                    new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+                File.WriteAllText(tempPath, json);
+
+                if (File.Exists(_filePath))
+                {
+                    File.Copy(
+                        tempPath,
+                        _filePath,
+                        overwrite: true);
+                    File.Delete(tempPath);
+                }
+                else
+                {
+                    File.Move(tempPath, _filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"[NameRecovery] cache save failed: {ex.Message}");
+            }
+        }
+
+        private static string NormalizeName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            string normalized = new string(
+                value
+                    .Trim()
+                    .Where(ch => !char.IsControl(ch))
+                    .Take(64)
+                    .ToArray());
+
+            return string.IsNullOrWhiteSpace(normalized)
+                ? null
+                : normalized;
+        }
+    }
+
+
     // ====================== Quest Agent Info ======================
     public sealed class QuestAgentInfo
     {
@@ -2757,6 +4732,8 @@ namespace MultiQuest_Management
         public string Model { get; set; }
         public string Ip { get; set; }
         public string DeviceName { get; set; }  // Quest Agent가 설정한 고유 식별 이름
+        public string DeviceNameSource { get; set; } // custom / generated
+        public long DeviceNameUpdatedAtMs { get; set; }
 
         public int RtspPort { get; set; }
         public string RtspUrl { get; set; }
@@ -2781,7 +4758,7 @@ namespace MultiQuest_Management
         public long? LastFrameAtMs { get; set; }
         public long? FrameAgeMs { get; set; }       // Agent가 직접 계산한 frameAge (ms)
         public long? StateDurationMs { get; set; }  // 현재 상태가 지속된 시간 (ms)
-        public int?  RtspClientCount { get; set; }
+        public int? RtspClientCount { get; set; }
 
         // 새로운 Agent API 속성 (선택적)
         public int ApiVersion { get; set; }
@@ -3233,8 +5210,8 @@ namespace MultiQuest_Management
             set { if (_systemUIActive != value) { _systemUIActive = value; OnPropertyChanged(); OnPropertyChanged(nameof(SystemUIMessage)); } }
         }
 
-        public string SystemUIMessage => SystemUIActive 
-            ? "⚠️ 시스템 UI 표시 중\nQuest에서 Boundary/설정 화면을 확인해 주세요" 
+        public string SystemUIMessage => SystemUIActive
+            ? "⚠️ 시스템 UI 표시 중\nQuest에서 Boundary/설정 화면을 확인해 주세요"
             : null;
 
         public RtspTileViewModel Rtsp
@@ -3316,11 +5293,11 @@ namespace MultiQuest_Management
 
                 return _streamState?.ToUpperInvariant() switch
                 {
-                    "RUNNING"  => "● 송출 중",
+                    "RUNNING" => "● 송출 중",
                     "STARTING" => "◐ 준비 중",
-                    "STOPPED"  => "○ 정지됨",
-                    "IDLE"     => "○ 대기 중",
-                    _          => "○ 정지됨"
+                    "STOPPED" => "○ 정지됨",
+                    "IDLE" => "○ 대기 중",
+                    _ => "○ 정지됨"
                 };
             }
         }
@@ -3334,11 +5311,11 @@ namespace MultiQuest_Management
 
                 return _streamState?.ToUpperInvariant() switch
                 {
-                    "RUNNING"  => "#3CE48C",  // Green
+                    "RUNNING" => "#3CE48C",  // Green
                     "STARTING" => "#FFA500",  // Orange
-                    "STOPPED"  => "#FF5963",  // Red
-                    "IDLE"     => "#AAAAAA",  // Gray
-                    _          => "#FF5963"   // Red
+                    "STOPPED" => "#FF5963",  // Red
+                    "IDLE" => "#AAAAAA",  // Gray
+                    _ => "#FF5963"   // Red
                 };
             }
         }
@@ -3347,9 +5324,9 @@ namespace MultiQuest_Management
             string.Equals(Status, "AgentOnly", StringComparison.OrdinalIgnoreCase);
 
         public bool IsConnected =>
-            string.Equals(Status, "Connected",  StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(Status, "Unstable",   StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(Status, "Checking",   StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "Connected", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "Unstable", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "Checking", StringComparison.OrdinalIgnoreCase) ||
             (string.Equals(Status, "AgentOnly", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(AgentHost));
 
         /// <summary>타일 상단 상태 표시 텍스트</summary>
@@ -3357,10 +5334,10 @@ namespace MultiQuest_Management
         {
             "Connected" => null,          // 정상: 별도 표시 없음
             "AgentOnly" => null,
-            "Unstable"  => "응답 지연",
-            "Checking"  => "재확인 중",
-            "Failed"    => "오프라인",
-            _           => null
+            "Unstable" => "응답 지연",
+            "Checking" => "재확인 중",
+            "Failed" => "오프라인",
+            _ => null
         };
 
         /// <summary>타일 상태 표시점 색상</summary>
@@ -3368,10 +5345,10 @@ namespace MultiQuest_Management
         {
             "Connected" => "#3CE48C",   // 초록
             "AgentOnly" => "#3CE48C",   // 초록
-            "Unstable"  => "#FFD700",   // 노란
-            "Checking"  => "#FF8C42",   // 주황
-            "Failed"    => "#FF5963",   // 빨강
-            _           => "#FF5963"
+            "Unstable" => "#FFD700",   // 노란
+            "Checking" => "#FF8C42",   // 주황
+            "Failed" => "#FF5963",   // 빨강
+            _ => "#FF5963"
         };
 
         public string BatteryText

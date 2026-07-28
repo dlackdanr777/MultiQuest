@@ -40,6 +40,32 @@ namespace MultiQuest_Management
             Ok &&
             !Ignored &&
             (Accepted || Completed);
+
+        /// <summary>
+        /// 요청이 Agent에 도착했을 가능성은 있지만 응답 확인이 불가능한 상태입니다.
+        /// timeout과 일반적인 network_error는 확정 실패로 단정하지 않습니다.
+        /// </summary>
+        public bool IsDeliveryUncertain =>
+            !IsAcceptedSuccess &&
+            (
+                TimedOut ||
+                string.Equals(
+                    Error,
+                    "timeout",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    Error,
+                    "network_error",
+                    StringComparison.OrdinalIgnoreCase)
+            );
+
+        /// <summary>
+        /// Agent의 명시적 거부, 잘못된 요청, 유효하지 않은 응답 등
+        /// 접수 실패로 확정할 수 있는 상태입니다.
+        /// </summary>
+        public bool IsExplicitFailure =>
+            !IsAcceptedSuccess &&
+            !IsDeliveryUncertain;
     }
 
     public sealed class AgentOperationEnvelope
@@ -93,15 +119,22 @@ namespace MultiQuest_Management
         private const int DefaultPort = 18080;
 
         private static readonly TimeSpan StatusTimeout =
-            TimeSpan.FromSeconds(3);
-        private static readonly TimeSpan FastStatusTimeout =
-            TimeSpan.FromMilliseconds(1_200);
-        private static readonly TimeSpan CommandTimeout =
             TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan FastStatusTimeout =
+            TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan CommandTimeout =
+            TimeSpan.FromSeconds(7);
+
+        // 전체 실행 5초 모드에서 각 후보 패키지 요청에 사용하는 제한 시간입니다.
+        // 후보가 2개여도 약 3.4초 안에 접수 여부를 판정할 수 있습니다.
+        private static readonly TimeSpan FastLaunchCommandTimeout =
+            TimeSpan.FromMilliseconds(1_700);
         private static readonly TimeSpan StopAllTimeout =
             TimeSpan.FromSeconds(8);
         private static readonly TimeSpan FastStopAllTimeout =
             TimeSpan.FromSeconds(3);
+        private static readonly TimeSpan AppCommandHttpTimeout =
+            TimeSpan.FromMilliseconds(1_500);
 
 #if NET5_0_OR_GREATER
         private static readonly HttpMessageHandler Handler =
@@ -110,7 +143,7 @@ namespace MultiQuest_Management
                 ConnectTimeout = TimeSpan.FromMilliseconds(1_500),
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5),
                 PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-                MaxConnectionsPerServer = 16,
+                MaxConnectionsPerServer = 32,
                 AutomaticDecompression =
                     DecompressionMethods.GZip |
                     DecompressionMethods.Deflate
@@ -142,7 +175,7 @@ namespace MultiQuest_Management
         {
             ServicePointManager.DefaultConnectionLimit = Math.Max(
                 ServicePointManager.DefaultConnectionLimit,
-                16);
+                64);
         }
 #endif
 
@@ -240,6 +273,45 @@ namespace MultiQuest_Management
             }
         }
 
+        public static Task<AgentCommandReply> SetDeviceNameDetailedAsync(
+            string host,
+            int port,
+            string deviceName,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(deviceName))
+                return Task.FromResult(
+                    InvalidRequest("deviceName is required"));
+
+            return SendCommandAsync(
+                host,
+                port,
+                "/command/setDeviceName",
+                new
+                {
+                    deviceName = deviceName.Trim()
+                },
+                CommandTimeout,
+                cancellationToken);
+        }
+
+        public static async Task<bool> SetDeviceNameAsync(
+            string host,
+            int port,
+            string deviceName,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply =
+                await SetDeviceNameDetailedAsync(
+                    host,
+                    port,
+                    deviceName,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return reply.IsAcceptedSuccess;
+        }
+
         public static async Task<AgentCommandReply> LaunchAppDetailedAsync(
             string host,
             int port,
@@ -264,10 +336,91 @@ namespace MultiQuest_Management
                     stopOthers = true,
                     stopRetryCount = 1,
                     stopRetryIntervalMs = 100,
+
+                    // Quest 시스템 UI/Agent task 정리 경쟁을 막는 짧은 전면 포커스 안정화입니다.
+                    focusGuard = true,
+
                     extras = extras ?? new { }
                 },
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// 16대 전체 실행 전용 빠른 launch 요청입니다.
+        ///
+        /// Android Agent에는 fastDispatch=true를 전달하여 HTTP 응답을
+        /// 실제 APP_STATE_ACTIVE 완료 전에 즉시 202 Accepted로 반환하게 합니다.
+        /// 이전 StoryWing 앱 종료 반복과 forceRestart를 생략하여 지연을 줄입니다.
+        /// </summary>
+        public static async Task<AgentCommandReply>
+            LaunchAppFastDetailedAsync(
+                string host,
+                int port,
+                string packageName,
+                string activityName =
+                    "com.unity3d.player.UnityPlayerActivity",
+                object extras = null,
+                CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(packageName))
+            {
+                return InvalidRequest(
+                    "packageName is required");
+            }
+
+            return await SendCommandAsync(
+                host,
+                port,
+                "/command/launch",
+                new
+                {
+                    packageName,
+                    activityName,
+
+                    // 5초 전체 실행 모드:
+                    // 앱 프로세스를 강제로 재시작하지 않고 기존 Activity를 재사용합니다.
+                    forceRestart = false,
+
+                    // 다른 StoryWing 앱 종료 반복을 하지 않고 대상 Activity를 즉시 전면 실행합니다.
+                    stopOthers = false,
+                    stopRetryCount = 0,
+                    stopRetryIntervalMs = 0,
+
+                    // Agent가 메인 스레드 launch를 큐에 넣은 뒤 즉시 202를 반환합니다.
+                    fastDispatch = true,
+
+                    // 앱 실행 직후 Agent task 정리 때문에 Quest Universal Menu가
+                    // 간헐적으로 전면에 남는 경쟁 상태를 Android 내부에서 보정합니다.
+                    focusGuard = true,
+
+                    extras = extras ?? new { }
+                },
+                FastLaunchCommandTimeout,
+                cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        public static async Task<bool> LaunchAppFastAsync(
+            string host,
+            int port,
+            string packageName,
+            string activityName =
+                "com.unity3d.player.UnityPlayerActivity",
+            object extras = null,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply =
+                await LaunchAppFastDetailedAsync(
+                    host,
+                    port,
+                    packageName,
+                    activityName,
+                    extras,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return reply.IsAcceptedSuccess;
         }
 
         public static async Task<bool> LaunchAppAsync(
@@ -288,14 +441,6 @@ namespace MultiQuest_Management
                 forceRestart,
                 cancellationToken).ConfigureAwait(false);
 
-            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
-
-            // 기존 로직: Accepted/Completed 확인
             return reply.IsAcceptedSuccess;
         }
 
@@ -322,7 +467,7 @@ namespace MultiQuest_Management
                 host,
                 port,
                 reply,
-                completionTimeout ?? TimeSpan.FromSeconds(15),
+                completionTimeout ?? TimeSpan.FromSeconds(35),
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -343,10 +488,11 @@ namespace MultiQuest_Management
                 new
                 {
                     packageName,
-                    goHome,
+                    goHome = false,
+                    disableUi = true,
                     retryCount = 3,
-                    retryIntervalMs = 150,
-                    goHomeDelayMs = 250
+                    retryIntervalMs = 1_000,
+                    goHomeDelayMs = 0
                 },
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
@@ -365,13 +511,6 @@ namespace MultiQuest_Management
                 packageName,
                 goHome,
                 cancellationToken).ConfigureAwait(false);
-
-            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
 
             return reply.IsAcceptedSuccess;
         }
@@ -399,13 +538,6 @@ namespace MultiQuest_Management
                 host,
                 port,
                 cancellationToken).ConfigureAwait(false);
-
-            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
 
             return reply.IsAcceptedSuccess;
         }
@@ -453,13 +585,6 @@ namespace MultiQuest_Management
                 port,
                 cancellationToken).ConfigureAwait(false);
 
-            // HTTP 2xx 응답을 받으면 Agent가 명령을 접수한 것으로 판단
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
-
             return reply.IsAcceptedSuccess;
         }
 
@@ -495,13 +620,87 @@ namespace MultiQuest_Management
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
 
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
+            return reply.IsAcceptedSuccess;
+        }
+
+        public static Task<AgentCommandReply>
+            SendReliableAppCommandDetailedAsync(
+                string host,
+                int port,
+                string packageName,
+                string command,
+                Dictionary<string, object> args = null,
+                string requestId = null,
+                int retryCount = 4,
+                int retryIntervalMs = 700,
+                CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(packageName) ||
+                string.IsNullOrWhiteSpace(command))
             {
-                return true;
+                return Task.FromResult(
+                    InvalidRequest(
+                        "packageName and command are required"));
             }
 
-            return reply.IsAcceptedSuccess;
+            string normalizedRequestId =
+                string.IsNullOrWhiteSpace(requestId)
+                    ? Guid.NewGuid().ToString("N")
+                    : requestId.Trim();
+
+            return SendCommandAsync(
+                host,
+                port,
+                "/command/appCommand",
+                new
+                {
+                    packageName,
+                    command,
+                    payload = args ??
+                        new Dictionary<string, object>(),
+                    requestId = normalizedRequestId,
+                    retryCount = Math.Max(1, Math.Min(9, retryCount)),
+                    retryIntervalMs = Math.Max(
+                        50,
+                        Math.Min(2_000, retryIntervalMs))
+                },
+                AppCommandHttpTimeout,
+                cancellationToken);
+        }
+
+        public static async Task<AgentOperationInfo>
+            SendReliableAppCommandAndWaitAsync(
+                string host,
+                int port,
+                string packageName,
+                string command,
+                Dictionary<string, object> args = null,
+                string requestId = null,
+                int retryCount = 4,
+                int retryIntervalMs = 700,
+                TimeSpan? completionTimeout = null,
+                CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply =
+                await SendReliableAppCommandDetailedAsync(
+                    host,
+                    port,
+                    packageName,
+                    command,
+                    args,
+                    requestId,
+                    retryCount,
+                    retryIntervalMs,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return await WaitForAcceptedCommandAsync(
+                host,
+                port,
+                reply,
+                completionTimeout ?? TimeSpan.FromSeconds(7),
+                cancellationToken)
+                .ConfigureAwait(false);
         }
 
         public static async Task<bool> SendCommandAsync(
@@ -512,30 +711,17 @@ namespace MultiQuest_Management
             Dictionary<string, object> args = null,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(packageName) ||
-                string.IsNullOrWhiteSpace(command))
-            {
-                return false;
-            }
-
-            AgentCommandReply reply = await SendCommandAsync(
-                host,
-                port,
-                "/command/appCommand",
-                new
-                {
+            AgentCommandReply reply =
+                await SendReliableAppCommandDetailedAsync(
+                    host,
+                    port,
                     packageName,
                     command,
-                    payload = args ?? new Dictionary<string, object>()
-                },
-                CommandTimeout,
-                cancellationToken).ConfigureAwait(false);
-
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
+                    args,
+                    retryCount: 1,
+                    retryIntervalMs: 700,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
 
             return reply.IsAcceptedSuccess;
         }
@@ -566,12 +752,6 @@ namespace MultiQuest_Management
                 port,
                 keepAwake,
                 cancellationToken).ConfigureAwait(false);
-
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
 
             return reply.IsAcceptedSuccess;
         }
@@ -611,12 +791,6 @@ namespace MultiQuest_Management
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
 
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
-
             return reply.IsAcceptedSuccess;
         }
 
@@ -632,12 +806,6 @@ namespace MultiQuest_Management
                 new { },
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
-
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
 
             return reply.IsAcceptedSuccess;
         }
@@ -655,12 +823,6 @@ namespace MultiQuest_Management
                 CommandTimeout,
                 cancellationToken).ConfigureAwait(false);
 
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
-            {
-                return true;
-            }
-
             return reply.IsAcceptedSuccess;
         }
 
@@ -677,10 +839,18 @@ namespace MultiQuest_Management
                 "/command/stopAllStoryWing",
                 new
                 {
-                    goHome,
+                    goHome = false,
+                    disableUi = true,
                     retryCount = 3,
-                    retryIntervalMs = 150,
-                    goHomeDelayMs = 600
+                    retryIntervalMs = 1_000,
+                    goHomeDelayMs = 0,
+                    fallbackAllPackages = true,
+                    priorityPackages = new[]
+                    {
+                        "com.StoryWing.XR_Coding",
+                        "com.StoryWing.Storywing_Class",
+                        "com.StoryWing.StorywingClass"
+                    }
                 },
                 StopAllTimeout,
                 cancellationToken).ConfigureAwait(false);
@@ -719,40 +889,204 @@ namespace MultiQuest_Management
             return stopsOk && homeOk;
         }
 
-        public static async Task<bool> StopAllStoryWingFastAsync(
-            string host,
-            int port = DefaultPort,
-            bool goHome = true,
-            int retryCount = 2,
-            int retryIntervalMs = 100,
-            int goHomeDelayMs = 250,
-            CancellationToken cancellationToken = default)
+        /// <summary>
+        /// 개별/전체 종료에서 공통으로 사용하는 상세 응답 경로입니다.
+        /// Agent는 HTTP 요청을 한 번 받고 내부에서 0초/1초/2초에 STOP을
+        /// 재전송합니다. bool로 평탄화하기 전에 timeout과 명시적 거부를
+        /// 구분할 수 있습니다.
+        /// </summary>
+        public static Task<AgentCommandReply>
+            StopAllStoryWingFastDetailedAsync(
+                string host,
+                int port = DefaultPort,
+                bool goHome = true,
+                int retryCount = 3,
+                int retryIntervalMs = 1_000,
+                int goHomeDelayMs = 0,
+                CancellationToken cancellationToken = default)
         {
-            AgentCommandReply reply = await SendCommandAsync(
+            return SendCommandAsync(
                 host,
                 port,
                 "/command/stopAllStoryWing",
                 new
                 {
+                    goHome = false,
+                    disableUi = true,
+                    retryCount,
+                    retryIntervalMs,
+                    goHomeDelayMs = 0,
+                    fallbackAllPackages = true,
+                    priorityPackages = new[]
+                    {
+                        "com.StoryWing.XR_Coding",
+                        "com.StoryWing.Storywing_Class",
+                        "com.StoryWing.StorywingClass"
+                    },
+                    fast = true
+                },
+                FastStopAllTimeout,
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// 기존 bool 호출부 호환용입니다.
+        /// </summary>
+        public static async Task<bool> StopAllStoryWingFastAsync(
+            string host,
+            int port = DefaultPort,
+            bool goHome = true,
+            int retryCount = 3,
+            int retryIntervalMs = 1_000,
+            int goHomeDelayMs = 0,
+            CancellationToken cancellationToken = default)
+        {
+            AgentCommandReply reply =
+                await StopAllStoryWingFastDetailedAsync(
+                    host,
+                    port,
                     goHome,
                     retryCount,
                     retryIntervalMs,
                     goHomeDelayMs,
-                    fast = true
-                },
-                FastStopAllTimeout,
-                cancellationToken).ConfigureAwait(false);
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-            // fast 모드에서는 HTTP 2xx 응답 자체를 성공으로 처리
-            // Agent가 명령을 접수했으면 백그라운드에서 종료 처리됨
-            if (reply.StatusCode.HasValue && 
-                IsSuccessStatusCode(reply.StatusCode.Value))
+            return reply.IsAcceptedSuccess;
+        }
+
+        /// <summary>
+        /// operation 상태를 한 번만 조회합니다.
+        /// 빠른 전체 실행 후 백그라운드 저빈도 검증에 사용합니다.
+        /// </summary>
+        public static async Task<AgentOperationInfo> GetOperationAsync(
+            string host,
+            int port,
+            string operationId,
+            TimeSpan? requestTimeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(operationId))
             {
-                return true;
+                return FailureOperation(
+                    null,
+                    "INVALID_OPERATION_ID",
+                    "operationId is required",
+                    retryable: false);
             }
 
-            // 기존 로직: Accepted/Completed 확인
-            return reply.IsAcceptedSuccess;
+            if (!TryBuildUri(
+                    host,
+                    port,
+                    $"/operations/{Uri.EscapeDataString(operationId)}",
+                    out Uri uri))
+            {
+                return FailureOperation(
+                    operationId,
+                    "INVALID_ENDPOINT",
+                    "Invalid host or port",
+                    retryable: false);
+            }
+
+            using var timeoutCts =
+                CreateTimeoutToken(
+                    cancellationToken,
+                    requestTimeout ??
+                        TimeSpan.FromSeconds(2));
+
+            using var request =
+                new HttpRequestMessage(
+                    HttpMethod.Get,
+                    uri);
+
+            try
+            {
+                using HttpResponseMessage response =
+                    await Http.SendAsync(
+                        request,
+                        HttpCompletionOption
+                            .ResponseHeadersRead,
+                        timeoutCts.Token)
+                    .ConfigureAwait(false);
+
+                string json =
+                    await response.Content
+                        .ReadAsStringAsync()
+                    .ConfigureAwait(false);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    AgentOperationEnvelope envelope =
+                        JsonSerializer
+                            .Deserialize<AgentOperationEnvelope>(
+                                json,
+                                JsonOptions);
+
+                    return envelope?.Operation ??
+                        FailureOperation(
+                            operationId,
+                            "PROTOCOL_ERROR",
+                            "Agent returned no operation object",
+                            retryable: false);
+                }
+
+                if (response.StatusCode ==
+                    HttpStatusCode.NotFound)
+                {
+                    return FailureOperation(
+                        operationId,
+                        "NOT_FOUND",
+                        "Operation was not found; " +
+                        "the Agent process may have restarted",
+                        retryable: true);
+                }
+
+                return FailureOperation(
+                    operationId,
+                    $"HTTP_{(int)response.StatusCode}",
+                    json,
+                    retryable:
+                        (int)response.StatusCode >= 500);
+            }
+            catch (OperationCanceledException)
+                when (
+                    cancellationToken
+                        .IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                return FailureOperation(
+                    operationId,
+                    "TIMEOUT",
+                    "Operation status request timed out",
+                    retryable: true);
+            }
+            catch (HttpRequestException ex)
+            {
+                return FailureOperation(
+                    operationId,
+                    "NETWORK_ERROR",
+                    ex.Message,
+                    retryable: true);
+            }
+            catch (JsonException ex)
+            {
+                return FailureOperation(
+                    operationId,
+                    "PROTOCOL_ERROR",
+                    ex.Message,
+                    retryable: false);
+            }
+            catch (Exception ex)
+            {
+                return FailureOperation(
+                    operationId,
+                    "CLIENT_EXCEPTION",
+                    ex.Message,
+                    retryable: false);
+            }
         }
 
         public static async Task<AgentOperationInfo> WaitForOperationAsync(
