@@ -128,13 +128,25 @@ namespace MultiQuest_Management
         // 전체 실행 5초 모드에서 각 후보 패키지 요청에 사용하는 제한 시간입니다.
         // 후보가 2개여도 약 3.4초 안에 접수 여부를 판정할 수 있습니다.
         private static readonly TimeSpan FastLaunchCommandTimeout =
-            TimeSpan.FromMilliseconds(1_700);
+            TimeSpan.FromMilliseconds(2_300);
         private static readonly TimeSpan StopAllTimeout =
             TimeSpan.FromSeconds(8);
         private static readonly TimeSpan FastStopAllTimeout =
-            TimeSpan.FromSeconds(3);
+            TimeSpan.FromMilliseconds(2_500);
+
+        private const int StopAllBackgroundRetryDelayMs = 220;
+        /*
+         * 6~16대 동시 전송 환경에서는 1.5초가 너무 공격적이어서
+         * Agent가 정상이어도 WPF가 먼저 취소하는 경우가 있었습니다.
+         *
+         * 동일 requestId 재전송은 Agent에서 중복 operation으로 합쳐지므로
+         * HTTP 확인 요청을 한 번 더 시도해도 콘텐츠 명령이 중복 적용되지 않습니다.
+         */
         private static readonly TimeSpan AppCommandHttpTimeout =
-            TimeSpan.FromMilliseconds(1_500);
+            TimeSpan.FromMilliseconds(2_300);
+
+        private const int AppCommandHttpAttemptCount = 2;
+        private const int AppCommandHttpRetryDelayMs = 180;
 
 #if NET5_0_OR_GREATER
         private static readonly HttpMessageHandler Handler =
@@ -420,7 +432,9 @@ namespace MultiQuest_Management
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return reply.IsAcceptedSuccess;
+            return
+                reply.IsAcceptedSuccess ||
+                reply.IsDeliveryUncertain;
         }
 
         public static async Task<bool> LaunchAppAsync(
@@ -623,7 +637,7 @@ namespace MultiQuest_Management
             return reply.IsAcceptedSuccess;
         }
 
-        public static Task<AgentCommandReply>
+        public static async Task<AgentCommandReply>
             SendReliableAppCommandDetailedAsync(
                 string host,
                 int port,
@@ -638,9 +652,8 @@ namespace MultiQuest_Management
             if (string.IsNullOrWhiteSpace(packageName) ||
                 string.IsNullOrWhiteSpace(command))
             {
-                return Task.FromResult(
-                    InvalidRequest(
-                        "packageName and command are required"));
+                return InvalidRequest(
+                    "packageName and command are required");
             }
 
             string normalizedRequestId =
@@ -648,24 +661,90 @@ namespace MultiQuest_Management
                     ? Guid.NewGuid().ToString("N")
                     : requestId.Trim();
 
-            return SendCommandAsync(
-                host,
-                port,
-                "/command/appCommand",
-                new
+            var requestBody = new
+            {
+                packageName,
+                command,
+                payload = args ??
+                    new Dictionary<string, object>(),
+                requestId = normalizedRequestId,
+                retryCount = Math.Max(
+                    1,
+                    Math.Min(
+                        9,
+                        retryCount)),
+                retryIntervalMs = Math.Max(
+                    50,
+                    Math.Min(
+                        2_000,
+                        retryIntervalMs))
+            };
+
+            AgentCommandReply lastReply = null;
+
+            for (int attempt = 1;
+                 attempt <= AppCommandHttpAttemptCount;
+                 attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                lastReply =
+                    await SendCommandAsync(
+                        host,
+                        port,
+                        "/command/appCommand",
+                        requestBody,
+                        AppCommandHttpTimeout,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi/AppCommand] " +
+                    $"host={host}:{NormalizePort(port)} " +
+                    $"package={packageName} " +
+                    $"attempt={attempt}/{AppCommandHttpAttemptCount} " +
+                    $"accepted={lastReply?.IsAcceptedSuccess} " +
+                    $"uncertain={lastReply?.IsDeliveryUncertain} " +
+                    $"retryable={lastReply?.Retryable} " +
+                    $"error={lastReply?.Error} " +
+                    $"requestId={normalizedRequestId}");
+
+                if (lastReply?.IsAcceptedSuccess == true)
                 {
-                    packageName,
-                    command,
-                    payload = args ??
-                        new Dictionary<string, object>(),
-                    requestId = normalizedRequestId,
-                    retryCount = Math.Max(1, Math.Min(9, retryCount)),
-                    retryIntervalMs = Math.Max(
-                        50,
-                        Math.Min(2_000, retryIntervalMs))
-                },
-                AppCommandHttpTimeout,
-                cancellationToken);
+                    return lastReply;
+                }
+
+                /*
+                 * package_not_installed, bad_request 등 명시적 비재시도 오류는
+                 * 같은 패키지로 다시 보내도 결과가 바뀌지 않습니다.
+                 */
+                if (lastReply?.IsExplicitFailure == true &&
+                    lastReply.Retryable != true)
+                {
+                    return lastReply;
+                }
+
+                if (attempt <
+                    AppCommandHttpAttemptCount)
+                {
+                    await Task.Delay(
+                            AppCommandHttpRetryDelayMs,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            return lastReply ??
+                new AgentCommandReply
+                {
+                    Ok = false,
+                    Accepted = false,
+                    Completed = false,
+                    Retryable = true,
+                    Error = "no_response",
+                    Message =
+                        "Agent appCommand response was not received."
+                };
         }
 
         public static async Task<AgentOperationInfo>
@@ -895,7 +974,7 @@ namespace MultiQuest_Management
         /// 재전송합니다. bool로 평탄화하기 전에 timeout과 명시적 거부를
         /// 구분할 수 있습니다.
         /// </summary>
-        public static Task<AgentCommandReply>
+        public static async Task<AgentCommandReply>
             StopAllStoryWingFastDetailedAsync(
                 string host,
                 int port = DefaultPort,
@@ -905,28 +984,91 @@ namespace MultiQuest_Management
                 int goHomeDelayMs = 0,
                 CancellationToken cancellationToken = default)
         {
-            return SendCommandAsync(
-                host,
-                port,
-                "/command/stopAllStoryWing",
-                new
+            var requestBody = new
+            {
+                goHome = false,
+                disableUi = true,
+                retryCount,
+                retryIntervalMs,
+                goHomeDelayMs = 0,
+                fallbackAllPackages = true,
+                priorityPackages = new[]
                 {
-                    goHome = false,
-                    disableUi = true,
-                    retryCount,
-                    retryIntervalMs,
-                    goHomeDelayMs = 0,
-                    fallbackAllPackages = true,
-                    priorityPackages = new[]
-                    {
-                        "com.StoryWing.XR_Coding",
-                        "com.StoryWing.Storywing_Class",
-                        "com.StoryWing.StorywingClass"
-                    },
-                    fast = true
+                    "com.StoryWing.XR_Coding",
+                    "com.StoryWing.Storywing_Class",
+                    "com.StoryWing.StorywingClass"
                 },
-                FastStopAllTimeout,
-                cancellationToken);
+                fast = true
+            };
+
+            AgentCommandReply reply =
+                await SendCommandAsync(
+                    host,
+                    port,
+                    "/command/stopAllStoryWing",
+                    requestBody,
+                    FastStopAllTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (
+                reply?.IsDeliveryUncertain == true &&
+                !cancellationToken.IsCancellationRequested
+            )
+            {
+                /*
+                 * 첫 요청은 Quest에 도착했지만 응답만 유실됐을 수 있습니다.
+                 * DeviceWindow/UI를 더 오래 막지 않고 동일 STOP 요청을
+                 * 백그라운드에서 한 번 더 확인합니다.
+                 *
+                 * STOP은 멱등적이며 Agent의 새 시퀀스가 기존 시퀀스를 대체하므로
+                 * 레거시 앱 종료 안정성을 높이면서 사용자 UI 지연을 만들지 않습니다.
+                 */
+                _ = RetryStopAllInBackgroundAsync(
+                    host,
+                    port,
+                    requestBody);
+            }
+
+            return reply;
+        }
+
+        private static async Task RetryStopAllInBackgroundAsync(
+            string host,
+            int port,
+            object requestBody)
+        {
+            try
+            {
+                await Task.Delay(
+                        StopAllBackgroundRetryDelayMs)
+                    .ConfigureAwait(false);
+
+                AgentCommandReply retryReply =
+                    await SendCommandAsync(
+                        host,
+                        port,
+                        "/command/stopAllStoryWing",
+                        requestBody,
+                        FastStopAllTimeout,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi/StopAllRetry] " +
+                    $"host={host}:{NormalizePort(port)} " +
+                    $"accepted={retryReply?.IsAcceptedSuccess} " +
+                    $"uncertain={retryReply?.IsDeliveryUncertain} " +
+                    $"error={retryReply?.Error} " +
+                    $"message={retryReply?.Message}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[AgentApi/StopAllRetry] " +
+                    $"host={host}:{NormalizePort(port)} " +
+                    $"error={ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -952,7 +1094,9 @@ namespace MultiQuest_Management
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return reply.IsAcceptedSuccess;
+            return
+                reply.IsAcceptedSuccess ||
+                reply.IsDeliveryUncertain;
         }
 
         /// <summary>
